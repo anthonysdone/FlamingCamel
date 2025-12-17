@@ -1,8 +1,8 @@
-## FlamingCamel: A minimal deep-learning library for learning Metal
+## FlamingCamel: A minimal deep-learning library for learning CUDA
 
 Below is a deliberately incremental, simplicity-first blueprint. At every stage you can train something, measure something, and optimize something—without framework complexity.
 
-You will learn Metal GPU programming on Apple Silicon Macs. The concepts (memory hierarchies, tiling, parallelism) transfer directly to Cuda —only the API syntax differs.
+You will learn CUDA GPU programming on NVIDIA GPUs using Modal for cloud compute. The concepts (memory hierarchies, tiling, parallelism) are fundamental to GPU programming.
 
 ---
 
@@ -22,8 +22,8 @@ Non-negotiable for steady progress:
 
 ### C. Reference path
 For every op:
-1. Correct baseline (CPU or naive Metal)
-2. Optimized Metal implementation (later)
+1. Correct baseline (CPU or naive CUDA)
+2. Optimized CUDA implementation (later)
 3. Test comparing them
 
 This keeps the library usable while you optimize kernels.
@@ -35,35 +35,51 @@ No distributed training, fancy compilation, or full PyTorch semantics—this is 
 
 ## Minimal architecture
 
-### Python surface
+### Python surface (frontend/)
 * `Tensor` with device dispatch
 * `nn`: `Linear`, `LayerNorm`, `Embedding`, `Attention`
 * `optim`: `SGD`, `Adam`
 * `functional`: stateless ops (added per-stage)
 
-### Metal shaders via Python bindings
-* Memory: allocate buffers, host↔device copies via Metal API
-* Compute kernels: elementwise, reductions, matmul (custom GEMM), layernorm, softmax, attention, embedding
+### CUDA kernels (backend/) via Python bindings
+* **Python-CUDA Bridge:** Use `cupy.RawKernel` for loading and calling CUDA kernels
+  - Compile `.cu` files with `nvcc` to `.cubin` or `.ptx`
+  - Load compiled kernels: `kernel = cupy.RawKernel(code, 'kernel_name')`
+  - Launch kernels: `kernel((grid,), (block,), (args,))`
+* **Memory Management:** Use `cupy.ndarray` to wrap CUDA device pointers
+  - Automatic memory management via Python garbage collection
+  - Interop with NumPy via `.get()` (device→host) and `cupy.asarray()` (host→device)
+* **Compute kernels:** elementwise, reductions, matmul (custom GEMM), layernorm, softmax, attention
 
 ### Core state
-* `TensorImpl`: Metal buffer, shape, dtype, device flag
-* Allocator: raw `MTLBuffer` allocation (no caching initially)
+* `TensorImpl`: 
+  - Wraps `cupy.ndarray` for CUDA or `numpy.ndarray` for CPU
+  - Store: `.data` (array), `.shape`, `.dtype`, `.device`, `.requires_grad`
+  - Device pointer accessible via `cupy.ndarray.data.ptr`
+* **Memory Management:**
+  - Leverage cupy's automatic memory management (no manual cudaMalloc/cudaFree)
+  - `.to('cuda')` creates cupy array via `cupy.asarray(numpy_data)`
+  - `.to('cpu')` extracts to NumPy via `cupy_array.get()`
+* **Autograd Integration:**
+  - Each `Function.forward()` stores necessary tensors in `ctx` (CPU or GPU)
+  - `Function.backward()` dispatches to CUDA kernels if input.device == 'cuda'
+  - Gradients accumulate on same device as tensor (.grad has same device as tensor)
 
 ---
 
 ## Stage plan: always train something
 
-Each stage ends with a working model, benchmark, and one profiler exercise (Instruments or Metal Debugger).
+Each stage ends with a working model, benchmark, and one profiler exercise (Nsight Systems or Nsight Compute).
 
 ### Stage 0 — Pure Python CPU skeleton (~300-400 LOC)
 
-**Purpose:** Validate autograd + API before implementing Metal kernels.
+**Purpose:** Validate autograd + API before implementing CUDA kernels.
 
 Implement (NumPy backend):
 * `Tensor`, tape-based autograd
 * Ops: `add`, `mul`, `matmul`, `sum`, `relu`, `cross_entropy`
 * `nn.Module`, `Linear`, `MLP`
-* `SGD` or `Adam`
+* At least one optimizer: `SGD` (simpler) or `Adam` (both optional)
 
 Milestone: Train XOR or tiny MNIST via MLP. Gradcheck `matmul` and `relu`.
 
@@ -75,15 +91,33 @@ Milestone: Train XOR or tiny MNIST via MLP. Gradcheck `matmul` and `relu`.
 
 **Purpose:** Get "Tensor on GPU" working.
 
+**Development Setup Options:**
+
+**Option A: Local CUDA (Recommended for this project)**
+* Install CUDA Toolkit and nvcc locally
+* Use `cupy` for Python-CUDA bridge (simplifies kernel calls)
+* Direct kernel compilation and execution
+* Low latency for training loops
+
+**Option B: Modal for Learning/Prototyping (Limited)**
+* Install Modal and authenticate: `pip install modal`
+* Create `modal_run.py` with CUDA image
+* Specify GPU type (A100, T4, etc.)
+* Use for: kernel prototyping, benchmarking, testing
+* **Limitation:** High latency for training loops (data transfer overhead)
+* **Best for:** Learning CUDA concepts, not production training
+
+**This guide assumes Option A (local CUDA) for practical development.**
+
 Add:
-* `Tensor.to("mps")` and `.to("cpu")` (Metal Performance Shaders device)
-* GPU memory management via Metal buffers
-* Metal compute kernels: `add`, `mul`, `relu` (one per op, no fusion, FP32)
-* Autograd uses Metal kernels when on GPU
+* `Tensor.to("cuda")` and `.to("cpu")` for device management
+* GPU memory management via CUDA (cudaMalloc, cudaMemcpy)
+* CUDA kernels: `add`, `mul`, `relu` (one per op, no fusion, FP32)
+* Autograd uses CUDA kernels when on GPU
 
 Milestone: Same MLP trains on GPU. Profile kernel dispatch.
 
-**Outcome:** Compute kernel dispatch, device buffers, Python ↔ GPU integration.
+**Outcome:** Kernel launch, device memory, Python ↔ GPU integration.
 
 ---
 
@@ -91,14 +125,14 @@ Milestone: Same MLP trains on GPU. Profile kernel dispatch.
 
 **Purpose:** Unlock softmax, stable losses, learn reductions.
 
-Add Metal kernels:
-* `sum` and `max` reductions (two-pass: threadgroup-wise → final reduce)
+Add CUDA kernels:
+* `sum` and `max` reductions (two-pass: block-wise → final reduce)
 * `softmax` forward (max-subtract stability)
 * `log_softmax`, stable `cross_entropy` forward
 
 Milestone: Classifier with softmax+loss on GPU. Profile reduction kernel.
 
-**Outcome:** Threadgroup memory reductions, SIMD-group primitives, numerical stability.
+**Outcome:** Shared memory reductions, warp primitives, numerical stability.
 
 ---
 
@@ -106,26 +140,26 @@ Milestone: Classifier with softmax+loss on GPU. Profile reduction kernel.
 
 **Purpose:** Learn the most important kernel in deep learning through incremental optimization.
 
-This stage follows the optimization path from [Simon Boehm's CUDA matmul blog](https://siboehm.com/articles/22/CUDA-MMM) and [Laurent Mazare's Metal implementation](https://github.com/LaurentMazare/gemm-metal).
+This stage follows exactly [Simon Boehm's CUDA matmul blog](https://siboehm.com/articles/22/CUDA-MMM).
 
 **Kernel 1: Naive Implementation** (~50 LOC)
 * Each thread computes one output element
 * Triple-loop: `C[i,j] = Σ A[i,k] * B[k,j]`
-* Grid of threadgroups maps directly to output matrix
+* Grid of blocks maps directly to output matrix
 * Implement `Linear` module, test correctness
 * Expected: ~100-300 GFLOPS, poor memory bandwidth utilization
 
 **Kernel 2: Global Memory Coalescing** (~50 LOC)
 * Remap threads to enable coalesced memory access
-* Threads in same SIMD-group access consecutive memory locations
-* Change thread indexing: consecutive `thread_index_in_threadgroup` loads consecutive columns of A
+* Threads in same warp access consecutive memory locations
+* Change thread indexing: consecutive `threadIdx.x` loads consecutive columns of A
 * Expected: 6-8x speedup from improved bandwidth (~600-2000 GFLOPS)
 
-**Kernel 3: Threadgroup Memory Cache-Blocking** (~100 LOC)
-* Cache tiles of A and B in threadgroup (shared) memory
-* Each threadgroup loads 32×32 tiles, reuses data across threads
+**Kernel 3: Shared Memory Cache-Blocking** (~100 LOC)
+* Cache tiles of A and B in shared memory
+* Each block loads 32×32 tiles, reuses data across threads
 * Two-level tiling: outer loop over K dimension, inner dot product
-* Use `threadgroup_barrier()` for synchronization
+* Use `__syncthreads()` for synchronization
 * Expected: Small improvement (~2000-3000 GFLOPS), sets up next optimization
 
 **Kernel 4: 1D Blocktiling** (~100 LOC)
@@ -142,22 +176,22 @@ This stage follows the optimization path from [Simon Boehm's CUDA matmul blog](h
 
 **Kernel 6: Vectorized Memory Access** (~100 LOC)
 * Use `float4` for 128-bit vectorized loads from global memory
-* Transpose A while loading into threadgroup memory
-* Enables vectorized loads from threadgroup memory too
+* Transpose A while loading into shared memory
+* Enables vectorized loads from shared memory too
 * Expected: 10-20% speedup (~15000-20000 GFLOPS)
 
 **Kernel 7-9: Autotuning** (~200 LOC)
-* Parameterize: `BM`, `BN`, `BK` (threadgroup tile sizes), `TM`, `TN` (thread tile sizes)
+* Parameterize: `BM`, `BN`, `BK` (block tile sizes), `TM`, `TN` (thread tile sizes)
 * Grid search over valid configurations
 * Test different tile sizes: 32, 64, 128 for BM/BN; 8, 16 for BK
-* Find optimal configuration for your hardware (M1/M2/M3)
+* Find optimal configuration for your hardware (A100, 4090, etc.)
 * Expected: 5-10% speedup depending on matrix size
 
-**Kernel 10: SIMD-group Tiling (Advanced, Optional)** (~200 LOC)
-* Add another tiling level: SIMD-group tiles within each threadgroup
-* Each SIMD-group (32 threads) computes a larger tile together
-* Better register cache locality and SIMD-group level reuse
-* Maps well to SIMD-group matrix operations (`simdgroup_matrix_storage`)
+**Kernel 10: Warptiling (Advanced, Optional)** (~200 LOC)
+* Add another tiling level: warp tiles within each block
+* Each warp (32 threads) computes a larger tile together
+* Better register cache locality and warp-level reuse
+* Maps well to tensor cores (wmma API) for future work
 * Expected: 5-15% additional speedup (~20000-23000 GFLOPS)
 
 **Kernel 11: Double Buffering (Future Work)**
@@ -168,17 +202,17 @@ This stage follows the optimization path from [Simon Boehm's CUDA matmul blog](h
 **Implementation Notes:**
 * Implement backward pass after forward works: `dW = X^T @ dY`, `dX = dY @ W^T`
 * Test each kernel against previous version and NumPy
-* Profile with Metal Debugger after each step
+* Profile with Nsight Compute after each step
 * Track: GFLOPS, memory bandwidth (GB/s), occupancy
-* Compare final version against Metal Performance Shaders GEMM
+* Compare final version against cuBLAS
 
 **Milestones:**
 * After Kernel 3: Train small MLP (slow but correct)
 * After Kernel 6: Train MLP on MNIST/CIFAR at reasonable speed
-* After Kernel 10: Within 90-95% of MPS GEMM performance
+* After Kernel 10: Within 90-95% of cuBLAS performance
 
 **Outcome:** Deep understanding of:
-* Memory hierarchy (global → threadgroup → register)
+* Memory hierarchy (global → shared → register)
 * Memory coalescing and bandwidth optimization
 * Arithmetic intensity and compute vs memory bound
 * Multi-level tiling strategies
@@ -190,7 +224,7 @@ This stage follows the optimization path from [Simon Boehm's CUDA matmul blog](h
 
 **Purpose:** Learn kernels essential for Transformers (simpler than attention).
 
-Implement Metal kernels:
+Implement CUDA kernels:
 * `layernorm_forward` (two-pass: compute mean/var, normalize)
 * `layernorm_backward` (after forward works)
 * `gelu` approximation kernel
@@ -203,54 +237,55 @@ Milestone: "Transformer block" (MLP + LayerNorm, no attention). Profile memory b
 
 ### Stage 5 — Attention (~1200-2000 LOC)
 
-**Purpose:** Capstone Metal learning kernel.
+**Purpose:** Capstone CUDA learning kernel.
 
 **5A: Naive attention** (correctness baseline)
 
 Implement:
-* `scores = Q @ K^T` (MPS GEMM or custom)
+* `scores = Q @ K^T` (cuBLAS or custom)
 * `P = softmax(scores)` (existing softmax)
-* `out = P @ V` (MPS GEMM or custom)
+* `out = P @ V` (cuBLAS or custom)
 * Backward: GEMMs + softmax backward
 
 Milestone: GPT-mini trains end-to-end (slow, correct).
 
 **5B: Flash attention** (~800-1200 LOC)
 
-Implement Flash Attention 2 via incremental optimizations (Parts 1-6 from [Sonny's flash attention blog](lubits.ch/flash), adapted for Metal on Apple Silicon):
+Implement Flash Attention 2 via incremental optimizations following [lubits.ch/flash](https://lubits.ch/flash). The source is a 10-part series; we'll implement through Part 6, covering 6 kernel iterations that achieve near-optimal performance:
 
-**Part 1-2: Foundation & Building Blocks**
-* Understand Metal equivalents: `simdgroup_matrix_storage`, Metal async copy, threadgroup memory tiling
-* Block-wise streaming: Load K/V blocks into threadgroup memory; maintain running max `m`, sum `l` per query
+**Part 1-2: Foundation & Building Blocks** (Preparation, no kernel implementation)
+* Understand CUDA APIs: `wmma` fragments, `cp.async` for async copies, shared memory tiling
+* Block-wise streaming: Load K/V blocks into shared memory; maintain running max `m`, sum `l` per query
 * Output updated incrementally (no full attention matrix materialized)
 * Forward only; backward stays naive
 
 **Part 3: Kernel 1 - Baseline Implementation** (~150-200 LOC)
-* Naive Flash Attention kernel achieving ~40-50% of MPS reference
-* Work distribution: threadgroup tiles (B_r=64, B_c=64), simdgroup-level parallelism
-* Memory transfers: Global → Threadgroup → SIMD-group using Metal async copy primitives
+* Naive Flash Attention kernel achieving ~40-50% of cuBLAS reference
+* Work distribution: block tiles (B_r=64, B_c=64), warp-level parallelism
+* Memory transfers: Global → Shared → Warp registers using `cp.async`
 
 **Part 4: Kernel 2 - Bank Conflicts & Swizzling** (~100-150 LOC)
-* XOR-based swizzling to eliminate threadgroup memory bank conflicts
+* XOR-based swizzling to eliminate shared memory bank conflicts
 * Target: 2x performance improvement (80-100% of reference)
 
-**Part 5: Kernel 3-5 - Metal GEMM Optimizations** (~250-350 LOC)
-* Kernel 3: Double buffering global→threadgroup transfers (eager K/V loading)
-* Kernel 4: Fragment interleaving for SIMD-group→register loads
-* Kernel 5: Double buffering threadgroup→register transfers
-* Target: ~100% of MPS reference performance
+**Part 5: Kernels 3-5 - CUDA GEMM Optimizations** (~250-350 LOC)
+* **Kernel 3:** Double buffering global→shared transfers (eager K/V loading with `cp.async`)
+* **Kernel 4:** Fragment interleaving for warp→register loads (`ldmatrix`)
+* **Kernel 5:** Double buffering shared→register transfers
+* Target: ~100% of cuBLAS reference performance
+* Note: Part 5 covers three separate kernel implementations (Kernels 3, 4, and 5)
 
 **Part 6: Kernel 6 - FP Instruction Fusion & Auto-Tuning** (~150-200 LOC)
 * Fuse FP multiply-add in online softmax (reduce instruction count)
 * Auto-tune block sizes: test (B_r, B_c) ∈ {(64,32), (64,64), (128,32), (128,64)}
-* Target: 100-105% of MPS reference
+* Target: 100-105% of cuBLAS reference
 
 Milestone: GPT-mini trains faster, handles 4K+ sequence lengths efficiently.
 
 **Outcome:** 
-- IO-aware algorithms, threadgroup tiling, online numerical stability
+- IO-aware algorithms, shared memory tiling, online numerical stability
 - Memory bank conflict resolution via swizzling
-- Latency hiding through double buffering at multiple memory levels
+- Latency hiding through double buffering at multiple memory levels (`cp.async`)
 - Instruction-level optimization (FMA fusion)
 - Configuration space exploration (auto-tuning)
 
@@ -263,11 +298,11 @@ Implement **only what each stage needs**:
 | Stage | Required | Where |
 |-------|----------|-------|
 | 0 | `add`, `mul`, `matmul`, `sum`, `relu`, `cross_entropy` | NumPy |
-| 1 | `add`, `mul`, `relu` | Metal compute kernels |
-| 2 | `sum`, `max`, `softmax`, `log_softmax` | Metal compute kernels |
-| 3 | `matmul` (naive → tiled → optimized) | Custom Metal GEMM kernels |
-| 4 | `layernorm`, `gelu` | Metal compute kernels |
-| 5 | `attention` | Metal kernels + MPS GEMM |
+| 1 | `add`, `mul`, `relu` | CUDA kernels |
+| 2 | `sum`, `max`, `softmax`, `log_softmax` | CUDA kernels |
+| 3 | `matmul` (naive → tiled → optimized) | Custom CUDA GEMM kernels |
+| 4 | `layernorm`, `gelu` | CUDA kernels |
+| 5 | `attention` | CUDA kernels + cuBLAS |
 
 **Tensor ops:** `reshape`, `transpose` (materialize only).
 
@@ -278,7 +313,7 @@ Implement **only what each stage needs**:
 ## What to measure at every stage
 
 ### Correctness
-* CPU vs Metal on random tensors
+* CPU vs CUDA on random tensors
 * Gradcheck on small shapes
 
 ### Performance
@@ -286,13 +321,13 @@ Implement **only what each stage needs**:
 * Report throughput (GB/s) or wall-clock time
 
 ### Profiling
-* Instruments: measure kernel dispatch overhead, memory transfers
-* Metal Debugger: memory bandwidth, occupancy, threadgroup memory usage
+* Nsight Systems: measure kernel dispatch overhead, memory transfers
+* Nsight Compute: memory bandwidth, occupancy, shared memory usage
 
 ### One optimization per stage
-* Vectorized loads, layout changes, threadgroup memory reuse, fewer passes, or fusion
+* Vectorized loads, layout changes, shared memory reuse, fewer passes, or fusion
 
-This keeps work focused on **Metal GPU learning, not framework plumbing**.
+This keeps work focused on **CUDA GPU learning, not framework plumbing**.
 
 ---
 
@@ -320,7 +355,7 @@ frontend/
   tensor.py           # Tensor class + autograd glue
   autograd.py         # Function, Context, backward tape
   functional.py       # Stateless ops
-  backend.py    # Metal device management and kernel dispatch
+  backend.py          # CUDA device management and kernel dispatch
   nn/
     module.py         # Module base class
     linear.py
@@ -330,19 +365,17 @@ frontend/
   optim/
     sgd.py
     adam.py
-backend/shaders
-  ops_elementwise.metal  # add, mul, relu
-  ops_reduce.metal       # sum, max
-  ops_softmax.metal      # softmax, log_softmax
-  ops_matmul.metal       # GEMM (naive, tiled, optimized)
-  ops_layernorm.metal    # layernorm
-  ops_attention.metal    # attention
+backend/
+  ops_elementwise.cu  # add, mul, relu
+  ops_reduce.cu       # sum, max
+  ops_softmax.cu      # softmax, log_softmax
+  ops_matmul.cu       # GEMM (naive, tiled, optimized)
+  ops_layernorm.cu    # layernorm
+  ops_attention.cu    # attention
 tests/
-  test_ops.py         # CPU vs Metal correctness
-  test_gradcheck.py   # Gradient numerical checks
-examples/
   mlp.py              # MLP training
   gpt_mini.py         # GPT-mini with attention
+modal_run.py          # Modal script
 ```
 
 This is enough structure without overengineering.
@@ -371,13 +404,13 @@ class MLP(nn.Module):
         return x
 
 # Training loop
-model = MLP(784, 256, 10).to("mps")
+model = MLP(784, 256, 10).to("cuda")
 optimizer = optim.Adam(model.parameters(), lr=1e-3)
 
 for epoch in range(10):
     for x_batch, y_batch in dataloader:
-        x = camel.tensor(x_batch).to("mps")
-        y = camel.tensor(y_batch).to("mps")
+        x = camel.tensor(x_batch).to("cuda")
+        y = camel.tensor(y_batch).to("cuda")
         
         # Forward
         logits = model(x)
@@ -450,13 +483,13 @@ model = GPT(
     n_layers=12,
     n_heads=12,
     max_seq_len=1024
-).to("mps")
+).to("cuda")
 
 optimizer = camel.optim.Adam(model.parameters(), lr=3e-4)
 
 # Training
 for tokens in dataloader:
-    tokens = camel.tensor(tokens).to("mps")  # (B, T)
+    tokens = camel.tensor(tokens).to("cuda")  # (B, T)
     
     # Predict next token
     logits = model(tokens[:, :-1])  # (B, T-1, vocab_size)
@@ -474,7 +507,7 @@ for tokens in dataloader:
 
 * **PyTorch-like syntax:** Familiar `.to()`, `.backward()`, method chaining
 * **Minimal boilerplate:** Module system handles parameter registration automatically
-* **Device-agnostic:** Same code works on CPU or MPS (Metal Performance Shaders)
+* **Device-agnostic:** Same code works on CPU or CUDA
 * **Explicit control:** No magic—you see every forward and backward pass
 
 ---
@@ -485,7 +518,7 @@ Each stage delivers a coherent, trained model:
 
 * **After Stage 1:** GPU MLP works.
 * **After Stage 2:** GPU MLP + stable softmax loss.
-* **After Stage 3:** Fast, practical MLP (MPS GEMM).
+* **After Stage 3:** Fast, practical MLP (cuBLAS-level).
 * **After Stage 4:** Transformer blocks (no attention).
 * **After Stage 5A:** GPT-mini trains end-to-end.
 * **After Stage 5B:** GPT-mini optimized (flash attention).
@@ -494,9 +527,9 @@ Each stage delivers a coherent, trained model:
 
 ## Next steps
 
-1. **Specify your target chip** (e.g., M1, M2, M3, M4) so we can tailor kernel priorities
+1. **Specify your target GPU** (e.g., A100, 4090, H100) on Modal so we can tailor kernel priorities
 2. **Define GPT-mini scope** (parameter count, sequence length)
-3. **Start Stage 0** (CPU skeleton) immediately on macOS
+3. **Start Stage 0** (CPU skeleton) locally, then move to Modal for CUDA stages
 
 From there, each stage adds ~300-2000 LOC depending on complexity.
 
@@ -504,8 +537,8 @@ From there, each stage adds ~300-2000 LOC depending on complexity.
 
 ## Next steps
 
-1. **Specify your target chip** (e.g., M1, M2, M3, M4) so we can tailor kernel priorities
+1. **Specify your target GPU** (e.g., A100, 4090, H100) on Modal so we can tailor kernel priorities
 2. **Define GPT-mini scope** (parameter count, sequence length)
-3. **Start Stage 0** (CPU skeleton) immediately on macOS
+3. **Start Stage 0** (CPU skeleton) locally, then move to Modal for CUDA stages
 
-From there, each stage adds ~300-2000 LOC of focused Metal learning that transfers directly to CUDA.
+From there, each stage adds ~300-2000 LOC of focused CUDA learning.

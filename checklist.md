@@ -4,13 +4,13 @@
 ### Stage 0: Pure Python CPU Skeleton (~300-400 LOC)
 
 #### Core Autograd System
-- [x] Create `core/autograd.py`
+- [x] Create `frontend/autograd.py`
   - [x] Implement `Function` base class with `forward()` and `backward()` abstract methods
   - [x] Implement `Context` class for saving tensors/data needed in backward pass
   - [x] Implement backward tape/graph structure
   - [x] Add gradient accumulation logic
 
-- [x] Create `core/tensor.py`
+- [x] Create `frontend/tensor.py`
   - [x] Implement `Tensor` class wrapping NumPy arrays
   - [x] Add `.requires_grad` flag
   - [x] Add `.grad` attribute for storing gradients
@@ -21,7 +21,7 @@
   - [x] Implement basic tensor creation: `zeros`, `ones`, `randn`, `arange`
 
 #### Functional Operations
-- [x] Create `core/functional.py`
+- [x] Create `frontend/functional.py`
   - [x] Implement `Add` function (forward/backward)
   - [x] Implement `Mul` function (forward/backward)
   - [x] Implement `MatMul` function (forward/backward)
@@ -31,26 +31,26 @@
   - [x] Add convenience wrappers: `add()`, `mul()`, `matmul()`, etc.
 
 #### Neural Network Primitives
-- [ ] Create `core/nn/module.py`
+- [ ] Create `frontend/nn/module.py`
   - [ ] Implement `Module` base class
   - [ ] Add `__call__()` that invokes `forward()`
   - [ ] Implement `.parameters()` method that recursively finds all Parameters
   - [ ] Implement `.to(device)` method
   - [ ] Implement `Parameter` class (Tensor with `requires_grad=True`)
 
-- [ ] Create `core/nn/linear.py`
+- [ ] Create `frontend/nn/linear.py`
   - [ ] Implement `Linear` layer with weight initialization
   - [ ] Add optional bias parameter
   - [ ] Implement forward pass: `y = x @ W^T + b`
 
 #### Optimizers
-- [ ] Create `core/optim/sgd.py`
-  - [ ] Implement `SGD` optimizer
+- [ ] Create `frontend/optim/sgd.py`
+  - [ ] Implement `SGD` optimizer (required: implement at least one optimizer)
   - [ ] Add `.zero_grad()` method
   - [ ] Add `.step()` method with learning rate
-  - [ ] Add momentum support
+  - [ ] Add momentum support (optional)
 
-- [ ] Create `core/optim/adam.py`
+- [ ] Create `frontend/optim/adam.py` (optional, can be done later)
   - [ ] Implement `Adam` optimizer
   - [ ] Add first and second moment estimates
   - [ ] Implement bias correction
@@ -73,91 +73,113 @@
 
 ### Stage 1: GPU Memory + Elementwise Kernels (~400-600 LOC)
 
-#### Build System
-- [ ] Set up Metal shader compilation pipeline
-- [ ] Configure `.metal` file compilation to `.metallib`
-- [ ] Create Python bindings using `pyobjc` or ctypes for Metal API
+#### Modal Serverless Setup
+- [ ] Install Modal: `pip install modal`
+- [ ] Create Modal account and authenticate: `modal token new`
+- [ ] Create `modal_run.py` in project root
+  - [ ] Define Modal app: `app = modal.App("flamingcamel")`
+  - [ ] Create CUDA image with nvcc and PyTorch
+  - [ ] Specify GPU requirements (e.g., `gpu="A100"` or `gpu="T4"`)
+- [ ] Set up `backend/` directory for CUDA kernel files (replace existing .metal stubs)
+- [ ] Set up Modal volume for persistent storage (if needed)
+- [ ] Configure Modal function decorators for remote execution
+  - [ ] `@app.function()` for Python functions
+  - [ ] Specify GPU type and memory requirements
+  - [ ] Set timeout limits for long-running operations
+- [ ] Create development workflow
+  - [ ] Local Python code calls Modal remote functions
+  - [ ] Modal functions compile and run CUDA kernels
+  - [ ] Return results back to local machine
+- [ ] Test Modal connection with simple GPU test function
+  - [ ] Verify CUDA availability
+  - [ ] Check GPU properties (compute capability, memory)
+  - [ ] Confirm nvcc compilation works
 
-#### Metal Backend Infrastructure
-- [ ] Create `core/backend.py`
-  - [ ] Initialize Metal device (`MTLCreateSystemDefaultDevice`)
-  - [ ] Create command queue
-  - [ ] Load compiled shader library (`.metallib`)
-  - [ ] Implement buffer allocation (`MTLBuffer`)
-  - [ ] Implement buffer deallocation
-  - [ ] Implement host-to-device copy (`buffer.contents()`)
-  - [ ] Implement device-to-host copy
-  - [ ] Add error checking utilities
+#### Build System
+- [ ] Install CUDA Toolkit locally (nvcc required)
+- [ ] Install cupy: `pip install cupy-cuda11x` (or appropriate CUDA version)
+- [ ] Create `scripts/compile_kernels.py`:
+  - [ ] Use `subprocess` to call nvcc for each `.cu` file
+  - [ ] Compile to `.ptx` format: `nvcc -ptx ops_*.cu -o compiled/ops_*.ptx`
+  - [ ] Store compiled kernels in `backend/compiled/`
+- [ ] Test compilation with a simple kernel
+
+#### CUDA Backend Infrastructure  
+- [ ] Create `frontend/backend.py`
+  - [ ] Initialize CUDA: `cupy.cuda.Device(0).use()` (select GPU 0)
+  - [ ] Load compiled kernels using `cupy.RawKernel`
+  - [ ] Add error checking: wrap in try/except for `cupy.cuda.runtime.CUDARuntimeError`
+  - [ ] Create device query utilities: `cupy.cuda.Device().attributes`
 
 #### Tensor Device Support
-- [ ] Update `core/tensor.py`
-  - [ ] Add `.device` attribute ("cpu" or "mps")
-  - [ ] Implement `.to("mps")` method
-  - [ ] Implement `.to("cpu")` method
-  - [ ] Add device dispatch in operations
+- [ ] Update `frontend/tensor.py`
+  - [ ] Store data as `self._data`: either `numpy.ndarray` or `cupy.ndarray`
+  - [ ] Add `.device` property: return "cuda" if `isinstance(self._data, cupy.ndarray)` else "cpu"
+  - [ ] Implement `.to("cuda")` method
+  - [ ] Ensure `.grad` tensors stay on same device as parent tensor
 
 #### Elementwise Kernels
-- [ ] Create `shaders/ops_elementwise.metal`
-  - [ ] Implement Metal `add` kernel (element-wise)
-  - [ ] Implement Metal `mul` kernel (element-wise)
-  - [ ] Implement Metal `relu` kernel (element-wise)
-  - [ ] Add forward pass compute functions
-  - [ ] Add backward pass compute functions (gradients)
+- [ ] Create `backend/kernels/ops_elementwise.cu`
+  - [ ] Implement `add_kernel`: `__global__ void add_kernel(float* a, float* b, float* c, int n)`
+  - [ ] Implement `mul_kernel`, `relu_kernel`, `relu_backward_kernel`
+  - [ ] Each kernel: 1 thread per element, grid-stride loop
+- [ ] Compile with nvcc: `nvcc -ptx ops_elementwise.cu -o compiled/ops_elementwise.ptx`
+- [ ] Load in `frontend/backend.py` using `cupy.RawKernel`
 
-- [ ] Update `core/functional.py`
-  - [ ] Add device dispatch to `add`, `mul`, `relu`
-  - [ ] Call Metal kernels when tensors are on MPS
-  - [ ] Keep NumPy path for CPU tensors
+- [ ] Update `frontend/functional.py`
+  - [ ] Add device dispatch in each operation
+  - [ ] Calculate grid/block dimensions based on tensor size
+  - [ ] Handle both forward and backward kernels
 
 #### Testing
 - [ ] Create `tests/test_gpu_ops.py`
-  - [ ] Test CPU vs MPS correctness for `add`, `mul`, `relu`
-  - [ ] Test host-device data transfers
-  - [ ] Test gradient correctness on MPS
+  - [ ] Test CPU vs CUDA correctness for `add`, `mul`, `relu`
+  - [ ] Test different tensor shapes
+  - [ ] Test gradient correctness on CUDA
 
 - [ ] Update `examples/mlp.py`
-  - [ ] Add `.to("mps")` to model and data
+  - [ ] Add `.to("cuda")` to model and data
   - [ ] Verify training works on GPU
 
 #### Profiling
-- [ ] Profile kernel dispatch overhead with Instruments
+- [ ] Profile kernel dispatch overhead with Nsight Systems
 - [ ] Measure memory transfer times
 - [ ] Document performance baseline
 
-**Stage 1 Milestone:** ✅ MLP trains on GPU with custom Metal kernels
+**Stage 1 Milestone:** ✅ MLP trains on GPU with custom CUDA kernels
 
 ---
 
 ### Stage 2: Reductions + Softmax (~500-700 LOC)
 
 #### Reduction Kernels
-- [ ] Create `shaders/ops_reduce.metal`
-  - [ ] Implement threadgroup-wise `sum` reduction kernel
-  - [ ] Implement final `sum` reduction kernel (two-pass)
-  - [ ] Implement threadgroup-wise `max` reduction kernel
-  - [ ] Implement final `max` reduction kernel (two-pass)
-  - [ ] Add threadgroup memory synchronization
-  - [ ] Implement SIMD-group primitives
+- [ ] Create `backend/ops_reduce.cu`
+  - [ ] Implement block-wise `sum` reduction kernel
+  - [ ] Use shared memory for per-block partial sums
+  - [ ] Implement second kernel for final reduction across blocks
+  - [ ] Implement `max` reduction (similar structure)
+  - [ ] Use warp shuffle primitives (`__shfl_down_sync`)
 
 #### Softmax Kernels
-- [ ] Create `shaders/ops_softmax.metal`
+- [ ] Create `backend/ops_softmax.cu`
   - [ ] Implement `softmax` forward kernel (max-subtract for stability)
+  - [ ] Each block handles one row, use shared memory for max/sum
   - [ ] Implement `log_softmax` forward kernel
   - [ ] Implement `softmax` backward kernel
   - [ ] Implement `log_softmax` backward kernel
 
 #### Functional API
-- [ ] Update `core/functional.py`
-  - [ ] Add `sum()` operation with Metal dispatch
-  - [ ] Add `max()` operation with Metal dispatch
-  - [ ] Add `softmax()` operation
-  - [ ] Add `log_softmax()` operation
+- [ ] Update `frontend/functional.py`
+  - [ ] Add `sum()` operation with CUDA dispatch
+  - [ ] Add `max()` operation with CUDA dispatch
+  - [ ] Add `softmax()` using CUDA kernel
+  - [ ] Add `log_softmax()` using CUDA kernel
   - [ ] Add stable `cross_entropy()` using log_softmax
 
 #### Testing
-- [ ] Test reduction correctness (CPU vs MPS)
+- [ ] Test reduction correctness (CPU vs CUDA)
 - [ ] Test softmax numerical stability
-- [ ] Test cross_entropy gradients
+  - [ ] Test cross_entropy gradients
 - [ ] Gradcheck all new operations
 
 #### Example
@@ -166,10 +188,10 @@
   - [ ] Verify stable training
 
 #### Profiling
-- [ ] Profile reduction kernel with Metal Debugger
-- [ ] Measure threadgroup memory usage
-- [ ] Analyze thread divergence
-- [ ] Optimize threadgroup size
+- [ ] Profile reduction kernel with Nsight Compute
+- [ ] Measure shared memory usage
+- [ ] Analyze warp divergence
+- [ ] Optimize block size
 
 **Stage 2 Milestone:** ✅ Classifier with stable softmax+loss on GPU
 
@@ -177,17 +199,18 @@
 
 ### Stage 3: Matrix Multiplication (~1000-1500 LOC)
 
-Following https://siboehm.com/articles/22/CUDA-MMM and https://github.com/LaurentMazare/gemm-metal
+Following exactly https://siboehm.com/articles/22/CUDA-MMM
 
 #### Kernel 1: Naive Implementation
-- [ ] Create `shaders/ops_matmul.metal`
+- [ ] Create `backend/ops_matmul.cu`
   - [ ] Implement naive GEMM: each thread computes one output element
-  - [ ] Triple-loop over K dimension
+  - [ ] Triple nested loop: `C[row][col] = sum(A[row][k] * B[k][col])`
+  - [ ] Grid configuration: `dim3 threads(16, 16); dim3 blocks((N+15)/16, (M+15)/16)`
   - [ ] Test correctness vs NumPy on small matrices
   - [ ] Implement backward pass: `dW = X^T @ dY`, `dX = dY @ W^T`
 
-- [ ] Update `core/nn/linear.py`
-  - [ ] Use Metal matmul when on MPS
+- [ ] Update `frontend/nn/linear.py`
+  - [ ] Use CUDA matmul when on cuda
   - [ ] Verify backward pass correctness
 
 - [ ] Benchmark and profile
@@ -198,23 +221,23 @@ Following https://siboehm.com/articles/22/CUDA-MMM and https://github.com/Lauren
 - [ ] Remap thread indexing for coalesced access
   - [ ] Change from 2D `thread_position_in_threadgroup` to 1D
   - [ ] Ensure consecutive threads access consecutive memory
-  - [ ] Threads in same SIMD-group load contiguous A elements
+  - [ ] Threads in same warp load contiguous A elements
 
 - [ ] Benchmark and profile
   - [ ] Measure GFLOPS (expect 6-8x speedup)
   - [ ] Verify improved memory bandwidth (should increase significantly)
 
-#### Kernel 3: Threadgroup Memory Cache-Blocking
-- [ ] Implement threadgroup memory caching
-  - [ ] Allocate threadgroup memory for A and B tiles (e.g., 32×32 each)
+#### Kernel 3: Shared Memory Cache-Blocking
+- [ ] Implement shared memory caching
+  - [ ] Allocate shared memory for A and B tiles (e.g., 32×32 each)
   - [ ] Outer loop: advance through K dimension
-  - [ ] Load tiles cooperatively from global to threadgroup memory
-  - [ ] Use `threadgroup_barrier()` before and after computation
-  - [ ] Inner loop: compute partial dot products using threadgroup data
+  - [ ] Load tiles cooperatively from global to shared memory
+  - [ ] Use `__syncthreads()` before and after computation
+  - [ ] Inner loop: compute partial dot products using shared memory data
 
 - [ ] Benchmark and profile
   - [ ] Measure GFLOPS (expect small improvement, ~2000-3000)
-  - [ ] Check threadgroup memory usage
+  - [ ] Check shared memory usage
   - [ ] Verify this sets up next optimization
 
 #### Kernel 4: 1D Blocktiling
@@ -236,9 +259,9 @@ Following https://siboehm.com/articles/22/CUDA-MMM and https://github.com/Lauren
   - [ ] Outer product pattern: `results[i*TN+j] += regM[i] * regN[j]`
   - [ ] Loop structure: BK → load registers → TM×TN outer product
 
-- [ ] Adjust threadgroup tile sizes
+- [ ] Adjust block tile sizes
   - [ ] Increase to BM=BN=128, BK=8 (or similar based on profiling)
-  - [ ] Ensure enough threadgroups for occupancy
+  - [ ] Ensure enough blocks for occupancy
 
 - [ ] Benchmark and profile
   - [ ] Measure GFLOPS (expect 2x speedup, ~12000-18000)
@@ -251,14 +274,14 @@ Following https://siboehm.com/articles/22/CUDA-MMM and https://github.com/Lauren
   - [ ] Cast pointers: `reinterpret_cast<float4*>(&A[...])`
   - [ ] Ensure alignment requirements are met
 
-- [ ] Transpose A during threadgroup memory loading
-  - [ ] Transpose A while copying from global to threadgroup memory
-  - [ ] Enables vectorized threadgroup memory loads for A
+- [ ] Transpose A during shared memory loading
+  - [ ] Transpose A while copying from global to shared memory
+  - [ ] Enables vectorized shared memory loads for A
   - [ ] B already has good layout
 
 - [ ] Benchmark and profile
   - [ ] Measure GFLOPS (expect 10-20% speedup, ~15000-20000)
-  - [ ] Verify vectorized loads in Metal Debugger
+  - [ ] Verify vectorized loads in Nsight Compute
   - [ ] Check memory bandwidth is closer to peak
 
 #### Kernel 7-9: Autotuning
@@ -280,23 +303,23 @@ Following https://siboehm.com/articles/22/CUDA-MMM and https://github.com/Lauren
 
 - [ ] Benchmark and profile
   - [ ] Measure GFLOPS (expect 5-10% gain depending on size)
-  - [ ] Document optimal configs for M1/M2/M3
+  - [ ] Document optimal configs for target GPU
 
-#### Kernel 10: SIMD-group Tiling (Advanced, Optional)
-- [ ] Add SIMD-group level tiling within each threadgroup
-  - [ ] Calculate SIMD-group ID: `simdgroup_index_in_threadgroup`
-  - [ ] Each SIMD-group computes WM×WN tile
-  - [ ] Thread computes TM×TN within SIMD-group tile
-  - [ ] New loop structure: BK → SIMD-group iter → thread iter
+#### Kernel 10: Warp Tiling
+- [ ] Add warp level tiling within each block
+  - [ ] Calculate warp ID: `threadIdx.x / 32`
+  - [ ] Each warp computes WM×WN tile
+  - [ ] Thread computes TM×TN within warp tile
+  - [ ] New loop structure: BK → warp iter → thread iter
 
-- [ ] Optimize SIMD-group memory access patterns
-  - [ ] Ensure SIMD-group threads access consecutive threadgroup memory
+- [ ] Optimize warp memory access patterns
+  - [ ] Ensure warp threads access consecutive shared memory
   - [ ] May help with bank conflicts
 
 - [ ] Benchmark and profile
   - [ ] Measure GFLOPS (expect 5-15% gain, ~20000-23000)
-  - [ ] Compare against Metal Performance Shaders GEMM
-  - [ ] Should be within 90-95% of MPS on large matrices
+  - [ ] Compare against cuBLAS GEMM
+  - [ ] Should be within 90-95% of cuBLAS on large matrices
 
 #### Testing Throughout
 - [ ] Create `tests/test_gemm.py`
@@ -309,7 +332,7 @@ Following https://siboehm.com/articles/22/CUDA-MMM and https://github.com/Lauren
 - [ ] Create benchmark suite
   - [ ] Benchmark all kernel variants
   - [ ] Plot GFLOPS vs matrix size
-  - [ ] Compare against Metal Performance Shaders
+  - [ ] Compare against cuBLAS
 
 #### Examples
 - [ ] Update `examples/mlp.py`
@@ -320,14 +343,14 @@ Following https://siboehm.com/articles/22/CUDA-MMM and https://github.com/Lauren
 **Stage 3 Milestones:** 
 - ✅ After Kernel 1-3: Correctness established, understanding memory hierarchy
 - ✅ After Kernel 4-5: Practical performance, can train real models
-- ✅ After Kernel 6-10: Optimized performance, within 10% of MPS GEMM
+- ✅ After Kernel 6-10: Optimized performance, within 10% of cuBLAS GEMM
 
 ---
 
 ### Stage 4: LayerNorm + GELU (~400-600 LOC)
 
 #### LayerNorm Kernel
-- [ ] Create `shaders/ops_layernorm.metal`
+- [ ] Create `backend/ops_layernorm.cu`
   - [ ] Implement two-pass forward kernel
     - [ ] Pass 1: Compute mean and variance
     - [ ] Pass 2: Normalize with `(x - mean) / sqrt(var + eps)`
@@ -336,18 +359,18 @@ Following https://siboehm.com/articles/22/CUDA-MMM and https://github.com/Lauren
   - [ ] Use Welford's algorithm for numerical stability
 
 #### GELU Kernel
-- [ ] Add `gelu` to `shaders/ops_elementwise.metal`
+- [ ] Add `gelu` to `backend/ops_elementwise.cu`
   - [ ] Implement GELU approximation: `0.5 * x * (1 + tanh(...))`
   - [ ] Implement backward pass
   - [ ] Test against PyTorch implementation
 
 #### Neural Network Modules
-- [ ] Create `core/nn/layernorm.py`
+- [ ] Create `frontend/nn/layernorm.py`
   - [ ] Implement `LayerNorm` module
   - [ ] Add learnable scale and bias parameters
   - [ ] Handle normalized_shape configuration
 
-- [ ] Create `core/nn/gelu.py`
+- [ ] Create `frontend/nn/gelu.py`
   - [ ] Implement `GELU` activation module
 
 #### Testing
@@ -363,7 +386,7 @@ Following https://siboehm.com/articles/22/CUDA-MMM and https://github.com/Lauren
   - [ ] Profile memory bandwidth
 
 #### Profiling
-- [ ] Profile LayerNorm with Metal Debugger
+- [ ] Profile LayerNorm with Nsight Compute
 - [ ] Identify memory bottlenecks
 - [ ] Measure bandwidth utilization
 - [ ] Optimize if needed
@@ -377,23 +400,23 @@ Following https://siboehm.com/articles/22/CUDA-MMM and https://github.com/Lauren
 #### Stage 5A: Naive Attention
 
 ##### Supporting Operations
-- [ ] Update `core/tensor.py`
+- [ ] Update `frontend/tensor.py`
   - [ ] Add `.reshape()` method
   - [ ] Add `.transpose()` method (materialize, no views)
   - [ ] Add `.view()` as alias for reshape
 
 ##### Embedding Layer
-- [ ] Create `core/nn/embedding.py`
+- [ ] Create `frontend/nn/embedding.py`
   - [ ] Implement `Embedding` module
   - [ ] Implement forward: 1D gather/index operation
   - [ ] Implement backward: scatter gradients
 
-- [ ] Create `shaders/ops_embedding.metal`
-  - [ ] Implement Metal embedding lookup kernel
+- [ ] Create `backend/ops_embedding.cu`
+  - [ ] Implement CUDA embedding lookup kernel
   - [ ] Implement gradient scatter kernel
 
 ##### Attention Implementation
-- [ ] Create `core/nn/attention.py`
+- [ ] Create `frontend/nn/attention.py`
   - [ ] Implement `MultiHeadAttention` module
   - [ ] Split into Q, K, V projections
   - [ ] Implement attention computation:
@@ -432,92 +455,92 @@ Following https://siboehm.com/articles/22/CUDA-MMM and https://github.com/Lauren
 
 #### Stage 5B: Flash Attention (~800-1200 LOC)
 
-Following the 6-part Flash Attention optimization guide from lubits.ch/flash, adapted for Metal on Apple Silicon M1/M2/M3.
+Following the Flash Attention optimization guide from lubits.ch/flash (a 10-part series), we'll implement through Part 6, which covers 6 kernel iterations. Parts 7-10 cover additional profiling and optimizations.
 
-##### Part 1-2: Foundation & Building Blocks
+##### Part 1-2: Foundation & Building Blocks (Preparation, no kernel implementation)
 
-**Metal API Learning**
-- [ ] Study Metal equivalents for GPU operations:
-  - [ ] `simdgroup_matrix_storage` for 8×8 matrix tile operations
-  - [ ] `async_copy` for efficient global→threadgroup transfers
-  - [ ] `simdgroup_load`/`simdgroup_store` for threadgroup→SIMD-group transfers
-  - [ ] Threadgroup memory (on-chip shared memory within threadgroup)
-  - [ ] SIMD-groups of 32 threads (Metal's parallel execution unit)
+**CUDA API Learning**
+- [ ] Study CUDA equivalents for GPU operations:
+  - [ ] `wmma` (Warp Matrix Multiply-Accumulate) for 16×16 matrix tile operations
+  - [ ] `cp.async` for efficient global→shared memory transfers
+  - [ ] `ldmatrix`/`stmatrix` for shared memory→warp register transfers
+  - [ ] Shared memory (on-chip shared memory within block)
+  - [ ] Warps of 32 threads (CUDA's parallel execution unit)
 
 **Fragment Operations**
-- [ ] Understand 8×8 tile operations with `simdgroup_matrix_storage`
-- [ ] Study thread-to-element mapping in SIMD-groups
-- [ ] Learn threadgroup memory banking structure (32 banks of 4B each)
+- [ ] Understand 16×16 tile operations with `wmma::fragment`
+- [ ] Study thread-to-element mapping in warps
+- [ ] Learn shared memory banking structure (32 banks of 4B each)
 
 **Memory Hierarchy**
 - [ ] Global memory (device buffers)
-- [ ] Threadgroup memory (on-chip, shared within threadgroup)
-- [ ] SIMD-group register file (private to SIMD-group)
+- [ ] Shared memory (on-chip, shared within block)
+- [ ] Warp register file (private to warp)
 
 ##### Part 3: Kernel 1 - Baseline Flash Attention (~150-200 LOC)
 
 **Block Configuration**
 - [ ] Choose initial block sizes: B_r=64 (query rows), B_c=64 (key/value rows), d_head=128
-- [ ] Use 4 SIMD-groups (128 threads total) per threadgroup
-- [ ] Calculate threadgroup memory requirements: ~48KiB for Q/K/V/O tiles
+- [ ] Use 4 warps (128 threads total) per block
+- [ ] Calculate shared memory requirements: ~48KiB for Q/K/V/O tiles
 
 **Work Distribution**
-- [ ] Map threadgroups to (batch, head, query_block) grid
-- [ ] Distribute query rows across 4 SIMD-groups (16 rows per SIMD-group)
-- [ ] Implement cooperative K/V loading across all SIMD-groups
+- [ ] Map blocks to (batch, head, query_block) grid
+- [ ] Distribute query rows across 4 warps (16 rows per warp)
+  - [ ] Implement cooperative K/V loading across all warps
 
 **Core Algorithm Implementation**
-- [ ] Create `shaders/ops_attention.metal`
+- [ ] Create `backend/ops_attention.cu`
 - [ ] Implement Prologue:
-  - [ ] Initialize threadgroup memory pointers
-  - [ ] Load Q tile: Global → Threadgroup → SIMD-group registers
+  - [ ] Initialize shared memory pointers
+  - [ ] Load Q tile: Global → Shared → Warp registers
   - [ ] Initialize online softmax statistics (m=-inf, l=0.0)
   - [ ] Zero output accumulator
 
 - [ ] Implement Mainloop (iterate over K/V blocks):
-  - [ ] Load K block: Global → Threadgroup → SIMD-group registers
-  - [ ] Compute attention scores: S = Q @ K^T using `simdgroup_multiply_accumulate`
+  - [ ] Load K block: Global → Shared → Warp registers
+  - [ ] Compute attention scores: S = Q @ K^T using `wmma::mma_sync`
   - [ ] Apply online softmax:
-    - [ ] Compute row max (with SIMD-group shuffle reductions)
+    - [ ] Compute row max (with warp shuffle reductions)
     - [ ] Update running max and rescale previous l/O
     - [ ] Exponentiate attention scores
     - [ ] Update running sum l
   - [ ] Convert S from fp32 to fp16 (P tile)
-  - [ ] Load V block: Global → Threadgroup → SIMD-group registers  
+  - [ ] Load V block: Global → Shared → Warp registers  
   - [ ] Accumulate output: O += P @ V
 
 - [ ] Implement Epilogue:
   - [ ] Final softmax normalization: O /= l
   - [ ] Convert O from fp32 to fp16
-  - [ ] Store O: SIMD-group registers → Threadgroup → Global
+  - [ ] Store O: Warp registers → Shared → Global
 
 **Memory Operations**
-- [ ] Implement Global ↔ Threadgroup transfers (16B vectorized, async copy)
-- [ ] Implement Threadgroup → SIMD-group loads (`simdgroup_load`, 8×8 tiles)
-- [ ] Implement SIMD-group → Threadgroup stores (standard 4B stores)
+- [ ] Implement Global ↔ Shared transfers (16B vectorized, cp.async)
+- [ ] Implement Shared → Warp loads (`ldmatrix`, 16×16 tiles)
+- [ ] Implement Warp → Shared stores (standard 4B stores)
 
 **Synchronization**
-- [ ] Add `threadgroup_barrier()` after K/V cooperative loads
-- [ ] Add `threadgroup_barrier()` between mainloop iterations
-- [ ] Use `simdgroup_barrier()` for SIMD-group-level operations
+- [ ] Add `__syncthreads()` after K/V cooperative loads
+- [ ] Add `__syncthreads()` between mainloop iterations
+- [ ] Use `__syncwarp()` for warp-level operations
 
 **Testing & Profiling**
 - [ ] Test correctness vs naive attention implementation
-- [ ] Profile with Metal Debugger:
-  - [ ] Check occupancy (aim for high threadgroup utilization per GPU core)
+- [ ] Profile with Nsight Compute:
+  - [ ] Check occupancy (aim for high block utilization per SM)
   - [ ] Measure kernel execution time
   - [ ] Verify no register spills
-- [ ] Benchmark performance: expect ~40-50% of MPS reference
+- [ ] Benchmark performance: expect ~40-50% of cuBLAS reference
 
-**Kernel 1 Target:** Working Flash Attention at 40-50% of MPS performance
+**Kernel 1 Target:** Working Flash Attention at 40-50% of cuBLAS performance
 
 ##### Part 4: Kernel 2 - Bank Conflicts & Swizzling (~100-150 LOC)
 
 **Understanding Bank Conflicts**
-- [ ] Profile Kernel 1 with Metal Performance Counter tool
-- [ ] Identify threadgroup memory bank conflicts in:
-  - [ ] Threadgroup → SIMD-group loads (ldmatrix equivalent)
-  - [ ] SIMD-group → Threadgroup stores
+- [ ] Profile Kernel 1 with Nsight Compute
+- [ ] Identify shared memory bank conflicts in:
+  - [ ] Shared → Warp loads (ldmatrix)
+  - [ ] Warp → Shared stores
 
 **Bank Conflict Analysis**
 - [ ] Understand 16B vectorized banking: 8 banks of 16B each (for 16B accesses)
@@ -526,38 +549,38 @@ Following the 6-part Flash Attention optimization guide from lubits.ch/flash, ad
 
 **Swizzling Implementation**
 - [ ] Create `get_swizzled_col()` function using XOR pattern: `(row ^ col)`
-- [ ] Apply swizzling to all threadgroup memory accesses:
-  - [ ] Global → Threadgroup copies
-  - [ ] Threadgroup → SIMD-group loads
-  - [ ] SIMD-group → Threadgroup stores
-  - [ ] Threadgroup → Global copies
+- [ ] Apply swizzling to all shared memory accesses:
+  - [ ] Global → Shared copies
+  - [ ] Shared → Warp loads
+  - [ ] Warp → Shared stores
+  - [ ] Shared → Global copies
 
 **Code Changes**
-- [ ] Add swizzling to `copy_block_global_to_threadgroup()`
-- [ ] Add swizzling to `copy_threadgroup_to_simdgroup()` for Q/K/V
-- [ ] Add swizzling to `copy_threadgroup_to_simdgroup_transposed()` for K^T
-- [ ] Add swizzling to `copy_simdgroup_to_threadgroup()` for O
+- [ ] Add swizzling to `copy_block_global_to_shared()`
+- [ ] Add swizzling to `copy_shared_to_warp()` for Q/K/V
+- [ ] Add swizzling to `copy_shared_to_warp_transposed()` for K^T
+- [ ] Add swizzling to `copy_warp_to_shared()` for O
 
 **Testing & Profiling**
 - [ ] Verify bank conflicts eliminated (check with profiler)
 - [ ] Test correctness (results should match Kernel 1 exactly)
-- [ ] Measure threadgroup memory bandwidth improvement (expect 8x reduction in wavefronts)
-- [ ] Benchmark performance: expect ~80-100% of MPS reference (2x improvement)
+- [ ] Measure shared memory bandwidth improvement (expect 8x reduction in wavefronts)
+- [ ] Benchmark performance: expect ~80-100% of cuBLAS reference (2x improvement)
 
-**Kernel 2 Target:** 2x speedup, ~80-100% of MPS reference performance
+**Kernel 2 Target:** 2x speedup, ~80-100% of cuBLAS reference performance
 
 ##### Part 5: Kernels 3-5 - GEMM Optimizations (~250-350 LOC)
 
-**Kernel 3: Double Buffering Global → Threadgroup (~80-100 LOC)**
-- [ ] Allocate extra threadgroup memory slice for K/V (double buffering)
+**Kernel 3: Double Buffering Global → Shared (~80-100 LOC)**
+- [ ] Allocate extra shared memory slice for K/V (double buffering)
 - [ ] Load next K/V block while computing on current block:
   - [ ] Move K load to after S computation (S = Q @ K^T)
   - [ ] Move V load to after softmax computation
   - [ ] Add special case for initial K load in prologue
-- [ ] Update threadgroup memory pointers to alternate between buffers
+- [ ] Update shared memory pointers to alternate between buffers
 - [ ] Add proper synchronization barriers
 - [ ] Profile: expect ~93% reduction in global memory stalls
-- [ ] Benchmark: expect ~99-100% of MPS reference
+- [ ] Benchmark: expect ~99-100% of cuBLAS reference
 
 **Kernel 4: Fragment Interleaving (~100-150 LOC)**
 - [ ] Break GEMM operations into sub-tiles along k-dimension:
@@ -573,17 +596,17 @@ Following the 6-part Flash Attention optimization guide from lubits.ch/flash, ad
 - [ ] Test register usage across configurations:
   - [ ] Verify (128,32,4) no longer spills
   - [ ] Measure spill reduction for (128,64,4)
-- [ ] Benchmark: expect ~100% of MPS reference, reduced latency
+- [ ] Benchmark: expect ~100% of cuBLAS reference, reduced latency
 
-**Kernel 5: Double Buffering Threadgroup → SIMD-group (~70-100 LOC)**
+**Kernel 5: Double Buffering Shared → Warp (~70-100 LOC)**
 - [ ] Allocate double register storage for K/V fragments
 - [ ] Alternate between register buffers:
   - [ ] Load next fragment set before computing on current set
   - [ ] Toggle buffer index each iteration
 - [ ] Add initial fragment load before GEMM loop
-- [ ] Profile: slight increase in `mio_throttle` stalls expected
+- [ ] Profile: slight increase in memory stalls expected
 - [ ] Note: May show regression for some configs but enables better auto-tuning
-- [ ] Benchmark: expect ~99-100% of MPS reference
+- [ ] Benchmark: expect ~99-100% of cuBLAS reference
 
 **Testing for Kernels 3-5**
 - [ ] Verify correctness after each kernel
@@ -607,14 +630,14 @@ Following the 6-part Flash Attention optimization guide from lubits.ch/flash, ad
   - [ ] Modify `exponentiate_tensor()` to fuse scale and exponential
   - [ ] Remove separate `scale_S_accum()` call
 - [ ] Measure instruction reduction: expect 11% fewer FP instructions
-- [ ] Benchmark: expect ~99.9-100% of MPS reference
+- [ ] Benchmark: expect ~99.9-100% of cuBLAS reference
 
 **Auto-Tuning Configuration Space**
 - [ ] Define tunable parameters:
   - [ ] `d_head` ∈ {128} (fixed for this project)
   - [ ] `B_r` ∈ {64, 128} (query block rows)
   - [ ] `B_c` ∈ {32, 64} (key/value block rows)
-  - [ ] `n_simdgroups` ∈ {4} (threads per threadgroup = 128)
+  - [ ] `n_warps` ∈ {4} (threads per block = 128)
   - [ ] `Q_fragments_persisted` ∈ {true, false}
   - [ ] `K_fragment_width` ∈ {0, 2} (0 = full tile, 2 = sub-tiles)
   - [ ] `V_fragment_width` ∈ {0, 2}
@@ -623,7 +646,7 @@ Following the 6-part Flash Attention optimization guide from lubits.ch/flash, ad
 
 - [ ] Filter out non-viable configurations:
   - [ ] Remove configs with excessive register spills (>100B per thread)
-  - [ ] Remove configs with inadequate threadgroup memory
+  - [ ] Remove configs with inadequate shared memory
 
 - [ ] Create benchmarking harness:
   - [ ] Generate all valid kernel configurations
@@ -633,9 +656,9 @@ Following the 6-part Flash Attention optimization guide from lubits.ch/flash, ad
 
 - [ ] Analyze results:
   - [ ] Compare register usage across configs
-  - [ ] Compare occupancy (threadgroup utilization per GPU core)
+  - [ ] Compare occupancy (block utilization per SM)
   - [ ] Identify sweet spots for different sequence lengths
-  - [ ] Document optimal configuration for M1/M2/M3
+  - [ ] Document optimal configuration for target GPU
 
 **Testing & Validation**
 - [ ] Verify numerical accuracy vs Kernel 1 baseline
@@ -644,21 +667,23 @@ Following the 6-part Flash Attention optimization guide from lubits.ch/flash, ad
 - [ ] Verify auto-tuning selects good configurations
 
 **Final Profiling**
-- [ ] Profile optimal configuration with Metal Debugger
+- [ ] Profile optimal configuration with Nsight Compute
 - [ ] Analyze occupancy, register pressure, memory bandwidth
-- [ ] Compare against MPS reference implementation
+- [ ] Compare against cuBLAS reference implementation
 - [ ] Document performance characteristics:
   - [ ] Peak TFLOPs/s achieved
   - [ ] Memory bandwidth utilization
   - [ ] Sequence length scaling behavior
 
-**Kernel 6 Target:** 100-105% of MPS reference performance on M1/M2/M3
+**Kernel 6 Target:** 100-105% of cuBLAS reference performance on target GPU
+
+**Note:** The lubits.ch/flash series continues with Parts 7-10, covering additional profiling, instruction reduction, and final optimizations. This project scope ends at Part 6 (6 kernels total), which achieves near-optimal performance.
 
 ##### Integration with Attention Module
 
-- [ ] Update `core/nn/attention.py`
+- [ ] Update `frontend/nn/attention.py`
   - [ ] Add `use_flash_attention` flag to `MultiHeadAttention`
-  - [ ] Add Metal kernel selection based on auto-tuned configuration
+  - [ ] Add CUDA kernel selection based on auto-tuned configuration
   - [ ] Dispatch to Flash Attention kernel when enabled
   - [ ] Keep naive implementation as fallback
 
@@ -668,7 +693,7 @@ Following the 6-part Flash Attention optimization guide from lubits.ch/flash, ad
   - [ ] Compare memory usage: naive vs flash (expect O(N²) → O(N) reduction)
   - [ ] Compare speed across sequence lengths: 512, 1024, 2048, 4096
   - [ ] Measure maximum sequence length that fits in memory
-  - [ ] Compare against MPS reference implementation
+  - [ ] Compare against cuBLAS reference implementation
   - [ ] Generate performance plots
 
 - [ ] Update `examples/gpt_mini.py`
@@ -676,7 +701,7 @@ Following the 6-part Flash Attention optimization guide from lubits.ch/flash, ad
   - [ ] Report training speedup
   - [ ] Test on longer sequences (2K-4K tokens)
 
-**Stage 5B Milestone:** ✅ Flash Attention implementation achieving 100-105% of MPS reference, enabling efficient training on 4K+ sequence lengths
+**Stage 5B Milestone:** ✅ Flash Attention implementation achieving 100-105% of cuBLAS reference, enabling efficient training on 4K+ sequence lengths
 
 **Stage 5 Milestone:** ✅ GPT-mini trains end-to-end and generates text
 
@@ -698,7 +723,7 @@ Following the 6-part Flash Attention optimization guide from lubits.ch/flash, ad
 
 #### Documentation
 - [ ] Write README.md with installation instructions
-- [ ] Document Metal kernel implementations
+- [ ] Document CUDA kernel implementations
 - [ ] Add tutorial notebooks (Jupyter)
 - [ ] Document performance characteristics
 - [ ] Add API reference documentation
