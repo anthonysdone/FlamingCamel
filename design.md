@@ -291,6 +291,122 @@ Milestone: GPT-mini trains faster, handles 4K+ sequence lengths efficiently.
 
 ---
 
+### Stage 6 — CNN Layers: Convolution + Pooling (~1500-2000 LOC)
+
+**Purpose:** Learn spatial convolution operations, essential for image processing and CNNs.
+
+This stage follows the optimization guide from [UIC CS525 CUDA Convolution](https://www.evl.uic.edu/sjames/cs525/final.html).
+
+**6A: Naive CPU Implementation + Basic CUDA**
+
+Implement supporting operations:
+* Add `reshape`, `transpose` to Tensor (if not already present from Stage 5)
+* Add `pad` operation for boundary handling
+
+Implement Conv2d layer:
+* `nn.Conv2d` with learnable kernels
+* Support configurable: kernel size, stride, padding, channels
+* Forward: im2col + matmul approach for correctness baseline
+* Backward: gradient w.r.t. input, weight, bias
+
+Implement pooling layers:
+* `nn.MaxPool2d` with configurable kernel size and stride
+* Forward: sliding window maximum
+* Backward: gradient routing to max positions
+
+**Step 0: Naive CUDA Convolution** (~150-200 LOC)
+* Direct 2D convolution kernel
+* Each thread computes one output pixel
+* Nested loops over kernel dimensions
+* Global memory access for every kernel element
+* Handle boundary conditions with zero-padding
+* Expected: Very slow (~1750ms for 1024x1024), but correct
+
+Milestone: Small CNN (Conv→ReLU→Pool→Conv→Linear) trains on MNIST (slow).
+
+**6B: Optimized CUDA Kernels** (~1300-1800 LOC)
+
+**Step 1: Shared Memory Caching** (~200-250 LOC)
+* Cache input tiles in shared memory (e.g., 32×32)
+* Each thread loads 4 values (including apron regions)
+* Block size 16×16, shared memory 32×32 for kernel radius 8
+* Reduce redundant global memory accesses
+* Use `__syncthreads()` after loading shared memory
+* Expected: 2.8× speedup (~2400ms → ~670ms for 2048×2048)
+
+**Step 2: Separable Convolution** (~300-350 LOC)
+* Decompose 2D convolution: row-wise then column-wise
+* Reduces complexity from O(k²) to O(2k) per pixel
+* Implement separate row and column kernels
+* Row kernel: only horizontal apron needed
+* Column kernel: only vertical apron needed
+* Store intermediate result between passes
+* Expected: 6.2× speedup over Step 1 (~370ms for 2048×2048)
+
+**Step 3: Memory Access Optimization** (~250-300 LOC)
+* Reorganize shared memory from 2D to 1D layout
+* Ensure coalesced memory access patterns
+* Eliminate shared memory bank conflicts
+* Change indexing to consecutive access by warp threads
+* Use `__mul24` for faster integer multiplication
+* Expected: 3.2× speedup over Step 2 (~118ms for 2048×2048)
+* **Total improvement: 57× faster than naive (2048×2048)**
+
+**Step 4: Advanced Optimizations (Optional)** (~200-300 LOC)
+* Texture memory for cached input reads
+* Further block size tuning and register optimization
+* Loop unrolling with `#pragma unroll`
+* Expected: Additional 2× speedup (~58ms for 2048×2048)
+
+**Pooling Kernels** (~200-250 LOC)
+
+Implement MaxPool2d CUDA kernels:
+* Forward: each thread computes one output position
+* Track max value and its position (for backward)
+* Use shared memory for input tile caching
+* Backward: scatter gradients to max positions only
+* Handle stride and padding correctly
+
+**Testing & Validation**
+* Test each optimization step against previous version
+* Compare against PyTorch Conv2d for correctness
+* Test various configurations: kernel sizes (3×3, 5×5, 7×7), channels, stride, padding
+* Gradcheck convolution and pooling operations
+* Profile with Nsight Compute after each step
+
+**Integration & Examples**
+
+Create example CNN architectures:
+* `examples/lenet.py`: Classic LeNet-5 for MNIST
+  - Conv(1→6) → ReLU → Pool → Conv(6→16) → ReLU → Pool → FC(400→120) → FC(120→84) → FC(84→10)
+  - Train on MNIST, verify convergence
+* `examples/simple_cnn.py`: Small CNN for CIFAR-10
+  - Conv→BatchNorm→ReLU→Pool pattern
+  - Compare training time: naive vs optimized kernels
+
+**Profiling & Benchmarking**
+* Profile each kernel variant with Nsight Compute
+* Measure: kernel execution time, memory bandwidth, occupancy, bank conflicts
+* Compare against cuDNN convolution (target: 80-90% of cuDNN performance)
+* Benchmark on different image sizes: 32×32, 64×64, 128×128, 256×256
+* Document performance scaling with different kernel sizes and channel counts
+
+**Milestones:**
+* After Step 0-1: LeNet trains on MNIST (slow but correct)
+* After Step 2-3: Practical CNN training speed
+* After Step 4: Near-optimal performance, within 80-90% of cuDNN
+
+**Outcome:** Deep understanding of:
+* Spatial convolution algorithms and optimizations
+* Separable convolution decomposition
+* Shared memory tiling for 2D data with halos (apron regions)
+* Memory layout optimization for coalesced access
+* Bank conflict resolution in 2D shared memory
+* Practical CNN architectures and training
+* Difference between dense (matmul) and sparse (conv) operations
+
+---
+
 ## Minimal operator set
 
 Implement **only what each stage needs**:
@@ -303,8 +419,9 @@ Implement **only what each stage needs**:
 | 3 | `matmul` (naive → tiled → optimized) | Custom CUDA GEMM kernels |
 | 4 | `layernorm`, `gelu` | CUDA kernels |
 | 5 | `attention` | CUDA kernels + cuBLAS |
+| 6 | `conv2d`, `maxpool2d` | CUDA kernels (naive → separable → optimized) |
 
-**Tensor ops:** `reshape`, `transpose` (materialize only).
+**Tensor ops:** `reshape`, `transpose`, `pad` (materialize only).
 
 **Never implement:** `sub`, `div`, `exp`, `log`, `conv2d`, `concat`—skip or decompose via autograd.
 
@@ -362,6 +479,8 @@ frontend/
     layernorm.py
     embedding.py
     attention.py
+    conv2d.py         # 2D convolution layer
+    pooling.py        # MaxPool2d, AvgPool2d
   optim/
     sgd.py
     adam.py
@@ -372,9 +491,14 @@ backend/
   ops_matmul.cu       # GEMM (naive, tiled, optimized)
   ops_layernorm.cu    # layernorm
   ops_attention.cu    # attention
+  ops_conv2d.cu       # 2D convolution (naive, shared mem, separable, optimized)
+  ops_pooling.cu      # max pooling, avg pooling
 tests/
   mlp.py              # MLP training
   gpt_mini.py         # GPT-mini with attention
+examples/
+  lenet.py            # LeNet-5 for MNIST
+  simple_cnn.py       # Small CNN for CIFAR-10
 modal_run.py          # Modal script
 ```
 

@@ -1,3 +1,5 @@
+import numpy as np
+
 class Context: 
     def __init__(self): 
         self.saved_tensors = []
@@ -43,9 +45,15 @@ def backward_pass(tensor):
     
     build_topo(tensor)
 
-    tensor.grad = tensor.data.__class__(1.0) if tensor.data.shape == () else tensor.data.__class__.ones(tensor.data.shape)
+    if tensor.data.shape == ():
+        tensor.grad = np.array(1.0)
+    else:
+        tensor.grad = np.ones(tensor.data.shape)
 
     for t in reversed(topo): 
+        if t.backward_fn is None:
+            continue
+            
         grads = t.backward_fn(t.ctx, t.grad)
         if not isinstance(grads, tuple): 
             grads = (grads,)

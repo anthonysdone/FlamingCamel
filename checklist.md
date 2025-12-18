@@ -31,38 +31,32 @@
   - [x] Add convenience wrappers: `add()`, `mul()`, `matmul()`, etc.
 
 #### Neural Network Primitives
-- [ ] Create `frontend/nn/module.py`
-  - [ ] Implement `Module` base class
-  - [ ] Add `__call__()` that invokes `forward()`
-  - [ ] Implement `.parameters()` method that recursively finds all Parameters
-  - [ ] Implement `.to(device)` method
-  - [ ] Implement `Parameter` class (Tensor with `requires_grad=True`)
+- [x] Create `frontend/nn/module.py`
+  - [x] Implement `Module` base class
+  - [x] Add `__call__()` that invokes `forward()`
+  - [x] Implement `.parameters()` method that recursively finds all Parameters
+  - [x] Implement `.to(device)` method
+  - [x] Implement `Parameter` class (Tensor with `requires_grad=True`)
 
-- [ ] Create `frontend/nn/linear.py`
-  - [ ] Implement `Linear` layer with weight initialization
-  - [ ] Add optional bias parameter
-  - [ ] Implement forward pass: `y = x @ W^T + b`
+- [x] Create `frontend/nn/linear.py`
+  - [x] Implement `Linear` layer with weight initialization
+  - [x] Add optional bias parameter
+  - [x] Implement forward pass: `y = x @ W^T + b`
 
-#### Optimizers
-- [ ] Create `frontend/optim/sgd.py`
-  - [ ] Implement `SGD` optimizer (required: implement at least one optimizer)
-  - [ ] Add `.zero_grad()` method
-  - [ ] Add `.step()` method with learning rate
-  - [ ] Add momentum support (optional)
-
-- [ ] Create `frontend/optim/adam.py` (optional, can be done later)
-  - [ ] Implement `Adam` optimizer
-  - [ ] Add first and second moment estimates
-  - [ ] Implement bias correction
-  - [ ] Add `.zero_grad()` and `.step()` methods
+#### Optimizer
+- [x] Create `frontend/optim/sgd.py`
+  - [x] Implement `SGD` optimizer (required: implement at least one optimizer)
+  - [x] Add `.zero_grad()` method
+  - [x] Add `.step()` method with learning rate
+  - [x] Add momentum support
 
 #### Testing & Validation
 - [ ] Create `tests/test_ops.py`
-  - [ ] Test basic tensor operations
+  - [x] Test basic tensor operations
   - [ ] Test autograd correctness
   - [ ] Implement numerical gradient checking
 
-- [ ] Create `examples/mlp.py`
+- [ ] Create `tests/mlp.py`
   - [ ] Implement simple MLP class
   - [ ] Train on XOR or tiny MNIST
   - [ ] Verify gradients are correct
@@ -80,7 +74,7 @@
   - [ ] Define Modal app: `app = modal.App("flamingcamel")`
   - [ ] Create CUDA image with nvcc and PyTorch
   - [ ] Specify GPU requirements (e.g., `gpu="A100"` or `gpu="T4"`)
-- [ ] Set up `backend/` directory for CUDA kernel files (replace existing .metal stubs)
+- [ ] Set up `backend/` directory for CUDA kernel files 
 - [ ] Set up Modal volume for persistent storage (if needed)
 - [ ] Configure Modal function decorators for remote execution
   - [ ] `@app.function()` for Python functions
@@ -347,7 +341,23 @@ Following exactly https://siboehm.com/articles/22/CUDA-MMM
 
 ---
 
-### Stage 4: LayerNorm + GELU (~400-600 LOC)
+### Stage 4: LayerNorm + GELU + Adam (~500-700 LOC)
+
+#### Neural Network Modules
+- [ ] Create `frontend/nn/layernorm.py`
+  - [ ] Implement `LayerNorm` module
+  - [ ] Add learnable scale and bias parameters
+  - [ ] Handle normalized_shape configuration
+
+- [ ] Create `frontend/nn/gelu.py`
+  - [ ] Implement `GELU` activation module
+
+  #### Adam Optimizer
+- [ ] Create `frontend/optim/adam.py`
+  - [ ] Implement `Adam` optimizer
+  - [ ] Add first and second moment estimates
+  - [ ] Implement bias correction
+  - [ ] Add `.zero_grad()` and `.step()` methods
 
 #### LayerNorm Kernel
 - [ ] Create `backend/ops_layernorm.cu`
@@ -363,15 +373,6 @@ Following exactly https://siboehm.com/articles/22/CUDA-MMM
   - [ ] Implement GELU approximation: `0.5 * x * (1 + tanh(...))`
   - [ ] Implement backward pass
   - [ ] Test against PyTorch implementation
-
-#### Neural Network Modules
-- [ ] Create `frontend/nn/layernorm.py`
-  - [ ] Implement `LayerNorm` module
-  - [ ] Add learnable scale and bias parameters
-  - [ ] Handle normalized_shape configuration
-
-- [ ] Create `frontend/nn/gelu.py`
-  - [ ] Implement `GELU` activation module
 
 #### Testing
 - [ ] Test LayerNorm correctness vs PyTorch
@@ -704,6 +705,250 @@ Following the Flash Attention optimization guide from lubits.ch/flash (a 10-part
 **Stage 5B Milestone:** ✅ Flash Attention implementation achieving 100-105% of cuBLAS reference, enabling efficient training on 4K+ sequence lengths
 
 **Stage 5 Milestone:** ✅ GPT-mini trains end-to-end and generates text
+
+---
+
+### Stage 6: CNN Layers - Convolution + Pooling (~1500-2000 LOC)
+
+Following the optimization guide from https://www.evl.uic.edu/sjames/cs525/final.html
+
+#### Stage 6A: Naive Implementation & Basic Layers
+
+##### Supporting Operations
+- [ ] Update `frontend/tensor.py`
+  - [ ] Ensure `.reshape()` method exists (may already be done in Stage 5)
+  - [ ] Ensure `.transpose()` method exists (may already be done in Stage 5)
+  - [ ] Add `.pad()` method for zero-padding boundaries
+
+##### Conv2d Layer
+- [ ] Create `frontend/nn/conv2d.py`
+  - [ ] Implement `Conv2d` module
+  - [ ] Add learnable weight kernel: shape (out_channels, in_channels, kernel_h, kernel_w)
+  - [ ] Add optional bias parameter: shape (out_channels,)
+  - [ ] Support parameters: kernel_size, stride, padding, in_channels, out_channels
+  - [ ] Implement forward pass (im2col + matmul approach for baseline)
+  - [ ] Implement backward pass: gradients w.r.t. input, weight, and bias
+
+##### Pooling Layers
+- [ ] Create `frontend/nn/pooling.py`
+  - [ ] Implement `MaxPool2d` module
+  - [ ] Support configurable kernel_size and stride
+  - [ ] Forward: sliding window maximum
+  - [ ] Backward: route gradients to max positions only
+  - [ ] Store max indices for backward pass
+
+##### Step 0: Naive CUDA Convolution (~150-200 LOC)
+- [ ] Create `backend/ops_conv2d.cu`
+  - [ ] Implement naive 2D convolution kernel
+  - [ ] Each thread computes one output pixel
+  - [ ] Nested loops over kernel height and width
+  - [ ] Global memory access for every kernel element
+  - [ ] Handle boundary conditions with zero-padding
+  - [ ] Implement forward kernel
+  - [ ] Implement backward kernels (gradient w.r.t. input and weights)
+
+- [ ] Update `frontend/backend.py`
+  - [ ] Load and initialize conv2d kernels
+  - [ ] Add grid/block dimension calculation for 2D operations
+
+- [ ] Update `frontend/functional.py`
+  - [ ] Add `conv2d()` operation with device dispatch
+  - [ ] Handle CPU (NumPy) and CUDA paths
+
+##### Testing & Validation (6A)
+- [ ] Create `tests/test_conv.py`
+  - [ ] Test Conv2d correctness against PyTorch
+  - [ ] Test different kernel sizes: 3×3, 5×5, 7×7
+  - [ ] Test different stride and padding configurations
+  - [ ] Test various channel counts
+  - [ ] Gradcheck conv2d operation
+
+- [ ] Create `examples/lenet.py`
+  - [ ] Implement LeNet-5 architecture
+    - [ ] Conv(1→6, 5×5) → ReLU → MaxPool(2×2)
+    - [ ] Conv(6→16, 5×5) → ReLU → MaxPool(2×2)
+    - [ ] Flatten → Linear(400→120) → ReLU
+    - [ ] Linear(120→84) → ReLU → Linear(84→10)
+  - [ ] Train on MNIST dataset
+  - [ ] Verify model converges (slow training is expected at this stage)
+
+**Stage 6A Milestone:** ✅ LeNet trains on MNIST with naive CUDA kernels (slow but correct)
+
+#### Stage 6B: Optimized CUDA Convolution Kernels
+
+##### Step 1: Shared Memory Caching (~200-250 LOC)
+- [ ] Modify convolution kernel in `backend/ops_conv2d.cu`
+  - [ ] Allocate shared memory for input tiles (e.g., 32×32)
+  - [ ] Set block size to 16×16, shared memory to 32×32
+  - [ ] Each thread loads 4 values from global memory
+  - [ ] Include apron regions (kernel radius padding) in shared memory
+  - [ ] Add `__syncthreads()` after loading to shared memory
+  - [ ] Compute convolution from shared memory instead of global
+  - [ ] Handle edge cases for tiles at image boundaries
+
+- [ ] Benchmark and profile
+  - [ ] Test on image sizes: 512×512, 1024×1024, 2048×2048
+  - [ ] Measure kernel execution time (expect 2.8× speedup)
+  - [ ] Profile with Nsight Compute: check global memory traffic reduction
+  - [ ] Expected: ~670ms for 2048×2048 (down from ~2400ms)
+
+##### Step 2: Separable Convolution (~300-350 LOC)
+- [ ] Implement separable convolution in `backend/ops_conv2d.cu`
+  - [ ] Create `convolution_row_kernel`: row-wise pass
+    - [ ] Only horizontal apron needed
+    - [ ] Shared memory: (TILE_W + 2×KERNEL_RADIUS) × TILE_H
+    - [ ] Each thread loads left and right apron values
+  - [ ] Create `convolution_col_kernel`: column-wise pass
+    - [ ] Only vertical apron needed
+    - [ ] Shared memory: TILE_W × (TILE_H + 2×KERNEL_RADIUS)
+    - [ ] Each thread loads upper and lower apron values
+  - [ ] Allocate intermediate buffer for row-pass results
+  - [ ] Apply row kernel first, then column kernel
+
+- [ ] Update `frontend/functional.py`
+  - [ ] Add separable convolution path
+  - [ ] Allocate and manage intermediate buffer
+  - [ ] Call row kernel, then column kernel sequentially
+
+- [ ] Implement backward pass for separable convolution
+  - [ ] Reverse order: column backward, then row backward
+  - [ ] Handle intermediate gradient buffer
+
+- [ ] Benchmark and profile
+  - [ ] Measure speedup (expect 6.2× over Step 1)
+  - [ ] Expected: ~370ms for 2048×2048
+  - [ ] Profile instruction count reduction
+  - [ ] Verify correctness matches non-separable version
+
+##### Step 3: Memory Access Optimization (~250-300 LOC)
+- [ ] Reorganize shared memory layout in both kernels
+  - [ ] Change from 2D array to 1D array layout
+  - [ ] Update indexing: `data[y * width + x]` instead of `data[y][x]`
+  - [ ] Ensure consecutive threads access consecutive memory addresses
+  - [ ] Calculate proper strides for apron regions
+
+- [ ] Eliminate shared memory bank conflicts
+  - [ ] Ensure warp threads access different banks
+  - [ ] Use proper memory alignment
+  - [ ] May need padding in shared memory to avoid conflicts
+
+- [ ] Add fast integer multiplication
+  - [ ] Replace standard multiplication with `__mul24` for indices
+  - [ ] Verify indices fit in 24-bit range
+
+- [ ] Update both row and column kernels with new layout
+
+- [ ] Benchmark and profile
+  - [ ] Measure speedup (expect 3.2× over Step 2)
+  - [ ] Expected: ~118ms for 2048×2048
+  - [ ] **Total: 57× faster than naive implementation**
+  - [ ] Profile with Nsight Compute: verify bank conflicts eliminated
+  - [ ] Check memory bandwidth utilization improvement
+
+##### Step 4: Advanced Optimizations (Optional) (~200-300 LOC)
+- [ ] Texture memory optimization
+  - [ ] Bind input tensor to texture memory
+  - [ ] Use texture cache for input reads
+  - [ ] Leverage automatic 2D caching
+
+- [ ] Block size auto-tuning
+  - [ ] Test different block configurations: 8×8, 16×16, 32×32
+  - [ ] Test different shared memory tile sizes
+  - [ ] Find optimal configuration for target GPU
+
+- [ ] Loop unrolling
+  - [ ] Add `#pragma unroll` directives to inner loops
+  - [ ] Unroll convolution kernel loops
+  - [ ] Measure impact on register usage
+
+- [ ] Benchmark and profile
+  - [ ] Measure additional speedup (expect 2× improvement)
+  - [ ] Expected: ~58ms for 2048×2048
+  - [ ] Compare against cuDNN (target: 80-90% of cuDNN performance)
+
+##### Pooling Kernels (~200-250 LOC)
+- [ ] Create `backend/ops_pooling.cu`
+  - [ ] Implement `maxpool2d_forward_kernel`
+    - [ ] Each thread computes one output position
+    - [ ] Sliding window over input region
+    - [ ] Find maximum value and its index
+    - [ ] Store both output value and max indices
+  - [ ] Implement `maxpool2d_backward_kernel`
+    - [ ] Scatter gradients to max positions only
+    - [ ] Use stored indices from forward pass
+    - [ ] All other positions get zero gradient
+  - [ ] Handle stride and padding correctly
+
+- [ ] Optimize pooling kernels
+  - [ ] Use shared memory for input tile caching
+  - [ ] Reduce global memory accesses
+  - [ ] Ensure coalesced memory access patterns
+
+- [ ] Update `frontend/nn/pooling.py`
+  - [ ] Dispatch to CUDA kernels when on GPU
+  - [ ] Store max indices as tensor for backward pass
+
+##### Testing & Validation (6B)
+- [ ] Test each optimization step
+  - [ ] Verify correctness against previous version
+  - [ ] Ensure gradients still match PyTorch reference
+  - [ ] Test on multiple image sizes
+
+- [ ] Create comprehensive test suite
+  - [ ] Test separable vs non-separable correctness
+  - [ ] Test different padding modes
+  - [ ] Test dilated convolutions (if implemented)
+  - [ ] Gradcheck all optimized kernels
+
+- [ ] Profile each step
+  - [ ] Measure kernel execution time
+  - [ ] Measure memory bandwidth utilization
+  - [ ] Measure occupancy and register usage
+  - [ ] Check for shared memory bank conflicts
+  - [ ] Compare against cuDNN baseline
+
+##### Example CNNs
+- [ ] Update `examples/lenet.py`
+  - [ ] Enable optimized kernels
+  - [ ] Measure training time per epoch
+  - [ ] Compare naive vs optimized performance
+  - [ ] Report final accuracy on MNIST
+
+- [ ] Create `examples/simple_cnn.py`
+  - [ ] Implement modern CNN architecture
+    - [ ] Conv→BatchNorm→ReLU→Pool pattern
+    - [ ] Multiple convolutional blocks
+    - [ ] Global average pooling
+    - [ ] Dense classification head
+  - [ ] Train on CIFAR-10 dataset
+  - [ ] Benchmark training throughput (images/sec)
+  - [ ] Compare CPU vs GPU speedup
+
+##### Benchmarking & Profiling
+- [ ] Create `benchmarks/conv_benchmark.py`
+  - [ ] Benchmark each kernel variant separately
+  - [ ] Test different image sizes: 32×32, 64×64, 128×128, 256×256
+  - [ ] Test different kernel sizes: 3×3, 5×5, 7×7
+  - [ ] Test different channel counts: 3, 16, 32, 64, 128
+  - [ ] Plot performance graphs
+
+- [ ] Compare against cuDNN
+  - [ ] Benchmark equivalent PyTorch operations
+  - [ ] Measure performance gap
+  - [ ] Document where optimizations fall short
+
+- [ ] Profile with Nsight Compute
+  - [ ] Analyze memory bandwidth bottlenecks
+  - [ ] Check arithmetic intensity
+  - [ ] Identify optimization opportunities
+  - [ ] Document hardware utilization metrics
+
+**Stage 6B Milestones:**
+- ✅ After Step 1: Practical CNN training with shared memory
+- ✅ After Step 2-3: Fast CNN training, 57× faster than naive
+- ✅ After Step 4: Near-optimal performance, within 80-90% of cuDNN
+
+**Stage 6 Milestone:** ✅ LeNet achieves >99% accuracy on MNIST with optimized CUDA convolution kernels, comparable speed to cuDNN
 
 ---
 

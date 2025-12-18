@@ -35,10 +35,14 @@ class Tensor:
     
     def __add__(self, other): 
         from .functional import add
+        if not isinstance(other, Tensor):
+            other = Tensor(other)
         return add(self, other)
     
     def __mul__(self, other): 
         from .functional import mul
+        if not isinstance(other, Tensor):
+            other = Tensor(other)
         return mul(self, other)
     
     def __matmul__(self, other): 
