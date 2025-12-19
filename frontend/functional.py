@@ -10,7 +10,25 @@ class Add(Function):
     
     @staticmethod
     def backward(ctx, grad_output):
-        return grad_output, grad_output
+        a, b = ctx.saved_tensors
+        grad_a = grad_output
+        grad_b = grad_output
+        
+        ndims_added = len(grad_a.shape) - len(a.data.shape)
+        for i in range(ndims_added):
+            grad_a = grad_a.sum(axis=0)
+        for i, (dim_a, dim_grad) in enumerate(zip(a.data.shape, grad_a.shape)):
+            if dim_a == 1 and dim_grad > 1:
+                grad_a = grad_a.sum(axis=i, keepdims=True)
+        
+        ndims_added = len(grad_b.shape) - len(b.data.shape)
+        for i in range(ndims_added):
+            grad_b = grad_b.sum(axis=0)
+        for i, (dim_b, dim_grad) in enumerate(zip(b.data.shape, grad_b.shape)):
+            if dim_b == 1 and dim_grad > 1:
+                grad_b = grad_b.sum(axis=i, keepdims=True)
+        
+        return grad_a, grad_b
 
 class Mul(Function): 
     @staticmethod
@@ -37,6 +55,16 @@ class MatMul(Function):
         grad_a = grad_output @ b.data.T
         grad_b = a.data.T @ grad_output
         return grad_a, grad_b
+
+class Transpose(Function):
+    @staticmethod
+    def forward(ctx, x):
+        ctx.save_for_backward(x)
+        return Tensor(x.data.T, x.requires_grad)
+    
+    @staticmethod
+    def backward(ctx, grad_output):
+        return grad_output.T
 
 class Sum(Function):
     @staticmethod
@@ -107,3 +135,6 @@ def relu(x):
 
 def cross_entropy(logits, targets): 
     return CrossEntropy.apply(logits, targets)
+
+def transpose(x):
+    return Transpose.apply(x)

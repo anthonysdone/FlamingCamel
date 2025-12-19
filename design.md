@@ -42,13 +42,16 @@ No distributed training, fancy compilation, or full PyTorch semantics—this is 
 * `functional`: stateless ops (added per-stage)
 
 ### CUDA kernels (backend/) via Python bindings
-* **Python-CUDA Bridge:** Use `cupy.RawKernel` for loading and calling CUDA kernels
-  - Compile `.cu` files with `nvcc` to `.cubin` or `.ptx`
-  - Load compiled kernels: `kernel = cupy.RawKernel(code, 'kernel_name')`
+* **Direct Compilation:** Compile `.cu` files on RunPod using nvcc
+  - Compile to `.ptx`: `nvcc -ptx backend/ops_elementwise.cu -o backend/ops_elementwise.ptx`
+  - Or use inline CUDA C++ strings in Python
+* **Python-CUDA Bridge:** Use `cupy.RawKernel` directly on RunPod
+  - Load PTX: `cupy.RawKernel(ptx_code, 'kernel_name')`
+  - Or inline source: `cupy.RawKernel(cuda_source, 'kernel_name')`
   - Launch kernels: `kernel((grid,), (block,), (args,))`
-* **Memory Management:** Use `cupy.ndarray` to wrap CUDA device pointers
+* **Memory Management:** Use `cupy.ndarray` on RunPod GPU
   - Automatic memory management via Python garbage collection
-  - Interop with NumPy via `.get()` (device→host) and `cupy.asarray()` (host→device)
+  - Data lives on GPU, accessed directly by Python
 * **Compute kernels:** elementwise, reductions, matmul (custom GEMM), layernorm, softmax, attention
 
 ### Core state
@@ -58,11 +61,11 @@ No distributed training, fancy compilation, or full PyTorch semantics—this is 
   - Device pointer accessible via `cupy.ndarray.data.ptr`
 * **Memory Management:**
   - Leverage cupy's automatic memory management (no manual cudaMalloc/cudaFree)
-  - `.to('cuda')` creates cupy array via `cupy.asarray(numpy_data)`
+  - `.to('cuda')` creates cupy array via `cupy.asarray(numpy_data)` on RunPod
   - `.to('cpu')` extracts to NumPy via `cupy_array.get()`
 * **Autograd Integration:**
   - Each `Function.forward()` stores necessary tensors in `ctx` (CPU or GPU)
-  - `Function.backward()` dispatches to CUDA kernels if input.device == 'cuda'
+  - `Function.backward()` dispatches to CUDA kernels when on GPU
   - Gradients accumulate on same device as tensor (.grad has same device as tensor)
 
 ---
@@ -91,33 +94,43 @@ Milestone: Train XOR or tiny MNIST via MLP. Gradcheck `matmul` and `relu`.
 
 **Purpose:** Get "Tensor on GPU" working.
 
-**Development Setup Options:**
+**Development Setup: RunPod SSH**
 
-**Option A: Local CUDA (Recommended for this project)**
-* Install CUDA Toolkit and nvcc locally
-* Use `cupy` for Python-CUDA bridge (simplifies kernel calls)
-* Direct kernel compilation and execution
-* Low latency for training loops
-
-**Option B: Modal for Learning/Prototyping (Limited)**
-* Install Modal and authenticate: `pip install modal`
-* Create `modal_run.py` with CUDA image
-* Specify GPU type (A100, T4, etc.)
-* Use for: kernel prototyping, benchmarking, testing
-* **Limitation:** High latency for training loops (data transfer overhead)
-* **Best for:** Learning CUDA concepts, not production training
-
-**This guide assumes Option A (local CUDA) for practical development.**
+* Sign up for RunPod and launch a GPU pod (RTX 3080 Ti recommended)
+* Choose a PyTorch template (includes CUDA Toolkit, nvcc, Python)
+* SSH into your pod: `ssh root@<pod-ip> -p <port>`
+* Install cupy on the pod: `pip install cupy-cuda12x` (adjust for CUDA version)
+* **Workflow:** Develop locally, sync to RunPod, compile & run on GPU
+  - Use `rsync` or `scp` to sync code: `rsync -avz --exclude '__pycache__' . root@<pod-ip>:<remote-path>`
+  - Or use VS Code Remote-SSH extension for seamless development
+  - Compile kernels directly with nvcc on the pod
+  - Run Python scripts directly on the GPU machine
+* **Best for:** Direct GPU access, low latency, simple workflow
+* **Cost:** ~$0.30-0.50/hour for RTX 3080 Ti
 
 Add:
 * `Tensor.to("cuda")` and `.to("cpu")` for device management
-* GPU memory management via CUDA (cudaMalloc, cudaMemcpy)
+* GPU memory management via cupy (automatic cudaMalloc/cudaFree)
 * CUDA kernels: `add`, `mul`, `relu` (one per op, no fusion, FP32)
 * Autograd uses CUDA kernels when on GPU
 
 Milestone: Same MLP trains on GPU. Profile kernel dispatch.
 
 **Outcome:** Kernel launch, device memory, Python ↔ GPU integration.
+
+**RunPod Development Workflow:**
+* Write CUDA kernels locally in `backend/*.cu` files
+* Sync to RunPod: `rsync -avz . root@<pod-ip>:/workspace/FlamingCamel/`
+* SSH into pod and compile: `nvcc -ptx backend/ops_elementwise.cu -o backend/ops_elementwise.ptx`
+* Load and run kernels with cupy:
+  ```python
+  import cupy
+  with open('backend/ops_elementwise.ptx', 'r') as f:
+      kernel = cupy.RawKernel(f.read(), 'add_kernel')
+  kernel((grid,), (block,), (a, b, c, n))
+  ```
+* Run training directly on the pod: `python tests/test_mlp.py`
+* For iterative development, use VS Code Remote-SSH to edit directly on pod
 
 ---
 
@@ -184,7 +197,7 @@ This stage follows exactly [Simon Boehm's CUDA matmul blog](https://siboehm.com/
 * Parameterize: `BM`, `BN`, `BK` (block tile sizes), `TM`, `TN` (thread tile sizes)
 * Grid search over valid configurations
 * Test different tile sizes: 32, 64, 128 for BM/BN; 8, 16 for BK
-* Find optimal configuration for your hardware (A100, 4090, etc.)
+* Find optimal configuration for your hardware (RTX 3080 Ti)
 * Expected: 5-10% speedup depending on matrix size
 
 **Kernel 10: Warptiling (Advanced, Optional)** (~200 LOC)
@@ -494,12 +507,15 @@ backend/
   ops_conv2d.cu       # 2D convolution (naive, shared mem, separable, optimized)
   ops_pooling.cu      # max pooling, avg pooling
 tests/
-  mlp.py              # MLP training
-  gpt_mini.py         # GPT-mini with attention
+  test_ops.py         # Basic operation tests
+  test_mlp.py         # MLP training
 examples/
   lenet.py            # LeNet-5 for MNIST
   simple_cnn.py       # Small CNN for CIFAR-10
-modal_run.py          # Modal script
+  gpt_mini.py         # GPT-mini with attention
+scripts/
+  sync_to_runpod.sh   # rsync helper script
+  compile_kernels.sh  # Compile all CUDA kernels
 ```
 
 This is enough structure without overengineering.
@@ -651,18 +667,13 @@ Each stage delivers a coherent, trained model:
 
 ## Next steps
 
-1. **Specify your target GPU** (e.g., A100, 4090, H100) on Modal so we can tailor kernel priorities
+1. **Set up RunPod:**
+   - Create account at runpod.io
+   - Launch GPU pod (RTX 3080 Ti recommended for cost/performance)
+   - Save SSH connection details
+   - Install cupy: `pip install cupy-cuda12x`
 2. **Define GPT-mini scope** (parameter count, sequence length)
-3. **Start Stage 0** (CPU skeleton) locally, then move to Modal for CUDA stages
-
-From there, each stage adds ~300-2000 LOC depending on complexity.
-
-// ...existing code...
-
-## Next steps
-
-1. **Specify your target GPU** (e.g., A100, 4090, H100) on Modal so we can tailor kernel priorities
-2. **Define GPT-mini scope** (parameter count, sequence length)
-3. **Start Stage 0** (CPU skeleton) locally, then move to Modal for CUDA stages
+3. **Start Stage 0** (CPU skeleton) locally, then sync to RunPod for CUDA stages
+4. **Create sync script** for easy code deployment to RunPod
 
 From there, each stage adds ~300-2000 LOC of focused CUDA learning.

@@ -51,15 +51,15 @@
   - [x] Add momentum support
 
 #### Testing & Validation
-- [ ] Create `tests/test_ops.py`
+- [x] Create `tests/test_ops.py`
   - [x] Test basic tensor operations
-  - [ ] Test autograd correctness
-  - [ ] Implement numerical gradient checking
+  - [x] Test autograd correctness
+  - [x] Implement numerical gradient checking
 
-- [ ] Create `tests/mlp.py`
-  - [ ] Implement simple MLP class
-  - [ ] Train on XOR or tiny MNIST
-  - [ ] Verify gradients are correct
+- [x] Create `tests/mlp.py`
+  - [x] Implement simple MLP class
+  - [x] Train on XOR and tiny MNIST
+  - [x] Verify gradients are correct
 
 **Stage 0 Milestone:** ✅ MLP trains on CPU with NumPy backend
 
@@ -67,63 +67,61 @@
 
 ### Stage 1: GPU Memory + Elementwise Kernels (~400-600 LOC)
 
-#### Modal Serverless Setup
-- [ ] Install Modal: `pip install modal`
-- [ ] Create Modal account and authenticate: `modal token new`
-- [ ] Create `modal_run.py` in project root
-  - [ ] Define Modal app: `app = modal.App("flamingcamel")`
-  - [ ] Create CUDA image with nvcc and PyTorch
-  - [ ] Specify GPU requirements (e.g., `gpu="A100"` or `gpu="T4"`)
-- [ ] Set up `backend/` directory for CUDA kernel files 
-- [ ] Set up Modal volume for persistent storage (if needed)
-- [ ] Configure Modal function decorators for remote execution
-  - [ ] `@app.function()` for Python functions
-  - [ ] Specify GPU type and memory requirements
-  - [ ] Set timeout limits for long-running operations
-- [ ] Create development workflow
-  - [ ] Local Python code calls Modal remote functions
-  - [ ] Modal functions compile and run CUDA kernels
-  - [ ] Return results back to local machine
-- [ ] Test Modal connection with simple GPU test function
-  - [ ] Verify CUDA availability
-  - [ ] Check GPU properties (compute capability, memory)
-  - [ ] Confirm nvcc compilation works
+#### RunPod Setup
+- [ ] Create RunPod account at runpod.io
+- [ ] Launch GPU pod (RTX 3080 Ti recommended)
+  - [ ] Choose PyTorch template (includes CUDA Toolkit, nvcc, Python)
+  - [ ] Note SSH connection details: `ssh root@<pod-ip> -p <port>`
+  - [ ] Set up persistent volume for data (optional)
+- [ ] SSH into pod and verify setup
+  - [ ] Check CUDA: `nvcc --version`
+  - [ ] Check GPU: `nvidia-smi`
+  - [ ] Install cupy: `pip install cupy-cuda12x` (adjust for CUDA version)
+  - [ ] Test cupy: `python -c "import cupy; print(cupy.cuda.runtime.getDeviceCount())"`
+- [ ] Set up sync workflow
+  - [ ] Use VS Code Remote-SSH for seamless development
+- [ ] Create project directory on pod: `mkdir -p /workspace/FlamingCamel`
 
-#### Build System
-- [ ] Install CUDA Toolkit locally (nvcc required)
-- [ ] Install cupy: `pip install cupy-cuda11x` (or appropriate CUDA version)
-- [ ] Create `scripts/compile_kernels.py`:
-  - [ ] Use `subprocess` to call nvcc for each `.cu` file
-  - [ ] Compile to `.ptx` format: `nvcc -ptx ops_*.cu -o compiled/ops_*.ptx`
-  - [ ] Store compiled kernels in `backend/compiled/`
-- [ ] Test compilation with a simple kernel
+#### Kernel Development System
+- [ ] Create `backend/ops_elementwise.cu` with CUDA kernels
+- [ ] Create `scripts/compile_kernels.sh` on RunPod:
+  - [ ] Compile all `.cu` files to `.ptx`
+  - [ ] Example: `nvcc -ptx backend/ops_elementwise.cu -o backend/ops_elementwise.ptx`
+- [ ] Test kernel compilation directly on pod
 
-#### CUDA Backend Infrastructure  
+#### Backend Infrastructure (Direct CUDA)
 - [ ] Create `frontend/backend.py`
-  - [ ] Initialize CUDA: `cupy.cuda.Device(0).use()` (select GPU 0)
-  - [ ] Load compiled kernels using `cupy.RawKernel`
-  - [ ] Add error checking: wrap in try/except for `cupy.cuda.runtime.CUDARuntimeError`
-  - [ ] Create device query utilities: `cupy.cuda.Device().attributes`
+  - [ ] Initialize cupy and detect GPU
+  - [ ] Load compiled `.ptx` kernels using `cupy.RawKernel`
+  - [ ] Create kernel wrapper functions
+  - [ ] Add error checking for CUDA errors
+  - [ ] Cache loaded kernels to avoid reloading
 
 #### Tensor Device Support
 - [ ] Update `frontend/tensor.py`
-  - [ ] Store data as `self._data`: either `numpy.ndarray` or `cupy.ndarray`
-  - [ ] Add `.device` property: return "cuda" if `isinstance(self._data, cupy.ndarray)` else "cpu"
-  - [ ] Implement `.to("cuda")` method
+  - [ ] Store data as `self._data`: `cupy.ndarray` for GPU or `numpy.ndarray` for CPU
+  - [ ] Add `.device` property: return "cuda" or "cpu" based on array type
+  - [ ] Implement `.to("cuda")` method: convert to cupy array
+  - [ ] Implement `.to("cpu")` method: convert to numpy array
   - [ ] Ensure `.grad` tensors stay on same device as parent tensor
 
 #### Elementwise Kernels
-- [ ] Create `backend/kernels/ops_elementwise.cu`
+- [ ] Create `backend/ops_elementwise.cu`
   - [ ] Implement `add_kernel`: `__global__ void add_kernel(float* a, float* b, float* c, int n)`
   - [ ] Implement `mul_kernel`, `relu_kernel`, `relu_backward_kernel`
   - [ ] Each kernel: 1 thread per element, grid-stride loop
-- [ ] Compile with nvcc: `nvcc -ptx ops_elementwise.cu -o compiled/ops_elementwise.ptx`
-- [ ] Load in `frontend/backend.py` using `cupy.RawKernel`
+- [ ] Compile kernels on RunPod:
+  - [ ] `nvcc -ptx backend/ops_elementwise.cu -o backend/ops_elementwise.ptx`
+  - [ ] Verify compilation succeeds
+- [ ] Update `frontend/backend.py` with kernel loading:
+  - [ ] Load `.ptx` files with `cupy.RawKernel`
+  - [ ] Create wrapper functions: `cuda_add()`, `cuda_mul()`, `cuda_relu()`
+  - [ ] Handle grid/block dimensions automatically
 
 - [ ] Update `frontend/functional.py`
-  - [ ] Add device dispatch in each operation
-  - [ ] Calculate grid/block dimensions based on tensor size
-  - [ ] Handle both forward and backward kernels
+  - [ ] Add device dispatch: if device="cuda", call CUDA kernels
+  - [ ] If device="cpu", use NumPy operations
+  - [ ] Handle both forward and backward passes
 
 #### Testing
 - [ ] Create `tests/test_gpu_ops.py`

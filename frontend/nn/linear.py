@@ -21,8 +21,10 @@ class Linear(Module):
         else: 
             self.bias = None
         
-    def forward(self, x): 
-        output = x @ self.weight.data.T
+    def forward(self, x):
+        from ..functional import transpose
+        weight_T = transpose(self.weight)
+        output = x @ weight_T
 
         if self.bias is not None: 
             output = output + self.bias
