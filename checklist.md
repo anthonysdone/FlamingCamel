@@ -68,26 +68,26 @@
 ### Stage 1: GPU Memory + Elementwise Kernels (~400-600 LOC)
 
 #### RunPod Setup
-- [ ] Create RunPod account at runpod.io
-- [ ] Launch GPU pod (RTX 3080 Ti recommended)
-  - [ ] Choose PyTorch template (includes CUDA Toolkit, nvcc, Python)
-  - [ ] Note SSH connection details: `ssh root@<pod-ip> -p <port>`
-  - [ ] Set up persistent volume for data (optional)
-- [ ] SSH into pod and verify setup
-  - [ ] Check CUDA: `nvcc --version`
-  - [ ] Check GPU: `nvidia-smi`
-  - [ ] Install cupy: `pip install cupy-cuda12x` (adjust for CUDA version)
-  - [ ] Test cupy: `python -c "import cupy; print(cupy.cuda.runtime.getDeviceCount())"`
-- [ ] Set up sync workflow
-  - [ ] Use VS Code Remote-SSH for seamless development
-- [ ] Create project directory on pod: `mkdir -p /workspace/FlamingCamel`
+- [x] Create RunPod account at runpod.io
+- [x] Launch GPU pod (RTX 3080 Ti recommended)
+  - [x] Choose PyTorch template (includes CUDA Toolkit, nvcc, Python)
+  - [x] Note SSH connection details: `ssh root@<pod-ip> -p <port>`
+  - [x] Set up persistent volume for data (optional)
+- [x] SSH into pod and verify setup
+  - [x] Check CUDA: `nvcc --version`
+  - [x] Check GPU: `nvidia-smi`
+  - [x] Install cupy: `pip install cupy-cuda12x` (adjust for CUDA version)
+  - [x] Test cupy: `python -c "import cupy; print(cupy.cuda.runtime.getDeviceCount())"`
+- [x] Set up sync workflow
+  - [x] Use VS Code Remote-SSH for seamless development
+- [x] Create project directory on pod: `mkdir -p /workspace/FlamingCamel`
 
 #### Kernel Development System
-- [ ] Create `backend/ops_elementwise.cu` with CUDA kernels
-- [ ] Create `scripts/compile_kernels.sh` on RunPod:
-  - [ ] Compile all `.cu` files to `.ptx`
-  - [ ] Example: `nvcc -ptx backend/ops_elementwise.cu -o backend/ops_elementwise.ptx`
-- [ ] Test kernel compilation directly on pod
+- [x] Create `backend/ops_elementwise.cu` with CUDA kernels
+- [x] Create `scripts/compile_kernels.sh` on RunPod:
+  - [x] Compile all `.cu` files to `.ptx`
+  - [x] Example: `nvcc -ptx backend/ops_elementwise.cu -o backend/ops_elementwise.ptx`
+- [x] Test kernel compilation directly on pod
 
 #### Backend Infrastructure (Direct CUDA)
 - [ ] Create `frontend/backend.py`
