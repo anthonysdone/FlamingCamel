@@ -104,7 +104,7 @@ class Tensor:
         return f"Tensor({self.data}, requires_grad={self.requires_grad})"
     
 
-def tensor(data, requires_grad=False, device="cpu"): 
+def tensor(data, requires_grad=False, device="cuda"): 
     return Tensor(data, requires_grad, device)
 
 def zeros(*shape, requires_grad=False, device="cuda"): 

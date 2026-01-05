@@ -2,6 +2,12 @@ import numpy as np
 from ..tensor import Tensor, Parameter
 from .module import Module
 
+try:
+    import cupy as cp
+    CUDA = True
+except ImportError:
+    CUDA = False
+
 class Linear(Module): 
     def __init__(self, in_features, out_features, bias=True): 
         super().__init__()
@@ -13,10 +19,14 @@ class Linear(Module):
         bound = np.sqrt(k)
 
         weight_data = np.random.uniform(-bound, bound, size=(out_features, in_features)).astype(np.float32)
+        if CUDA:
+            weight_data = cp.array(weight_data)
         self.weight = Parameter(weight_data)
 
         if bias: 
             bias_data = np.random.uniform(-bound, bound, size=(out_features,)).astype(np.float32)
+            if CUDA:
+                bias_data = cp.array(bias_data)
             self.bias = Parameter(bias_data)
         else: 
             self.bias = None
