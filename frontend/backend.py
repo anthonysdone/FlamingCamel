@@ -1,6 +1,7 @@
 import os
 import cupy as cp # type: ignore
 from pathlib import Path
+import ctypes
 
 
 def cuda_add(a, b, out): 
@@ -13,14 +14,8 @@ def cuda_add(a, b, out):
 
     n = a.size
     grid_size, block_size = backend.get_grid_block_size(n)
-
-    kernel(
-        (grid_size,),
-        (block_size,),
-        (a, b, out, n)
-    )
-
-    backend.check_cuda_error()
+    
+    kernel(grid=grid_size, block=block_size, args=(a, b, out, n))
 
 
 class CUDABackend: 
@@ -37,7 +32,7 @@ class CUDABackend:
                 print(f"CUDA initialized: {device_count} device(s) found")
 
                 props = cp.cuda.runtime.getDeviceProperties(self.device_id)
-                print(f"Using GPU: {props["name"].decode()}")
+                print(f"Using GPU: {props['name'].decode()}")
             else: 
                 print("No CUDA devices found, using CPU only")
         except Exception as e: 
@@ -67,7 +62,9 @@ class CUDABackend:
             ptx_code = f.read()
         
         try: 
-            kernel = cp.RawKernel(ptx_code, kernel_name)
+            # Load PTX module directly using CUDA runtime
+            module = cp.cuda.runtime.moduleLoadData(ptx_code.encode())
+            kernel = cp.cuda.runtime.moduleGetFunction(module, kernel_name)
             self.kernels[cache_key] = kernel
             print(f"Loaded kernel: {kernel_name} from {ptx_file}")
             return kernel
@@ -101,7 +98,7 @@ def is_cuda_available():
 
 def synchronize():
     if is_cuda_available():
-        cp.cuda.Strem.null.synchronize()
+        cp.cuda.Stream.null.synchronize()
 
 def empty_cache():
     if is_cuda_available():
