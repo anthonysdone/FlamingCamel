@@ -4,8 +4,8 @@ import os
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from frontend.tensor import Tensor, tensor, zeros, ones, randn
-from frontend.functional import add, mul, matmul, sum, relu, cross_entropy
+from tensor import Tensor, tensor, zeros, ones, randn
+from functional import add, mul, matmul, sum, relu, cross_entropy
 
 
 def grad_check(f, x, eps=1e-3, atol=1e-2): 

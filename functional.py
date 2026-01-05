@@ -4,8 +4,8 @@ try:
     CUDA = True
 except ImportError:
     CUDA = False
-from .autograd import Function
-from .tensor import Tensor
+from autograd import Function
+from tensor import Tensor
 
 class Add(Function):
     @staticmethod
@@ -13,7 +13,7 @@ class Add(Function):
         ctx.save_for_backward(a, b)
 
         if CUDA and isinstance(a.data, cp.ndarray):
-            from frontend.backend import cuda_add
+            from backend import cuda_add
             out_data = cuda_add(a.data, b.data)
             device = "cuda"
         else:
@@ -52,7 +52,7 @@ class Mul(Function):
         ctx.save_for_backward(a, b)
 
         if CUDA and isinstance(a.data, cp.ndarray):
-            from frontend.backend import cuda_mul
+            from backend import cuda_mul
             out_data = cuda_mul(a.data, b.data)
             device = "cuda"
         else:
@@ -66,7 +66,7 @@ class Mul(Function):
         a, b = ctx.saved_tensors
 
         if CUDA and isinstance(a.data, cp.ndarray):
-            from frontend.backend import cuda_mul_backward
+            from backend import cuda_mul_backward
             grad_a, grad_b = cuda_mul_backward(grad_output, a.data, b.data)
         else:
             grad_a = grad_output * b.data
@@ -117,7 +117,7 @@ class ReLU(Function):
         ctx.save_for_backward(x)
 
         if CUDA and isinstance(x.data, cp.ndarray):
-            from frontend.backend import cuda_relu
+            from backend import cuda_relu
             out_data = cuda_relu(x.data)
             device = "cuda"
         else:
@@ -131,7 +131,7 @@ class ReLU(Function):
         x, = ctx.saved_tensors
 
         if CUDA and isinstance(grad_output, cp.ndarray):
-            from frontend.backend import cuda_relu_backward
+            from backend import cuda_relu_backward
             grad_x = cuda_relu_backward(grad_output, x.data)
         else:
             grad_x = grad_output * (x.data > 0)

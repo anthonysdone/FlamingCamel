@@ -4,13 +4,13 @@
 ### Stage 0: Pure Python CPU Skeleton (~300-400 LOC)
 
 #### Core Autograd System
-- [x] Create `frontend/autograd.py`
+- [x] Create `autograd.py`
   - [x] Implement `Function` base class with `forward()` and `backward()` abstract methods
   - [x] Implement `Context` class for saving tensors/data needed in backward pass
   - [x] Implement backward tape/graph structure
   - [x] Add gradient accumulation logic
 
-- [x] Create `frontend/tensor.py`
+- [x] Create `tensor.py`
   - [x] Implement `Tensor` class wrapping NumPy arrays
   - [x] Add `.requires_grad` flag
   - [x] Add `.grad` attribute for storing gradients
@@ -21,7 +21,7 @@
   - [x] Implement basic tensor creation: `zeros`, `ones`, `randn`, `arange`
 
 #### Functional Operations
-- [x] Create `frontend/functional.py`
+- [x] Create `functional.py`
   - [x] Implement `Add` function (forward/backward)
   - [x] Implement `Mul` function (forward/backward)
   - [x] Implement `MatMul` function (forward/backward)
@@ -31,20 +31,20 @@
   - [x] Add convenience wrappers: `add()`, `mul()`, `matmul()`, etc.
 
 #### Neural Network Primitives
-- [x] Create `frontend/nn/module.py`
+- [x] Create `nn/module.py`
   - [x] Implement `Module` base class
   - [x] Add `__call__()` that invokes `forward()`
   - [x] Implement `.parameters()` method that recursively finds all Parameters
   - [x] Implement `.to(device)` method
   - [x] Implement `Parameter` class (Tensor with `requires_grad=True`)
 
-- [x] Create `frontend/nn/linear.py`
+- [x] Create `nn/linear.py`
   - [x] Implement `Linear` layer with weight initialization
   - [x] Add optional bias parameter
   - [x] Implement forward pass: `y = x @ W^T + b`
 
 #### Optimizer
-- [x] Create `frontend/optim/sgd.py`
+- [x] Create `optim/sgd.py`
   - [x] Implement `SGD` optimizer (required: implement at least one optimizer)
   - [x] Add `.zero_grad()` method
   - [x] Add `.step()` method with learning rate
@@ -90,7 +90,7 @@
 - [x] Test kernel compilation directly on pod
 
 #### Backend Infrastructure (Direct CUDA)
-- [x] Create `frontend/backend.py`
+- [x] Create `backend.py`
   - [x] Initialize cupy and detect GPU
   - [x] Load compiled `.ptx` kernels using `cupy.RawKernel`
   - [x] Create kernel wrapper functions
@@ -98,7 +98,7 @@
   - [x] Cache loaded kernels to avoid reloading
 
 #### Tensor Device Support
-- [x] Update `frontend/tensor.py`
+- [x] Update `tensor.py`
   - [x] Store data as `self._data`: `cupy.ndarray` for GPU or `numpy.ndarray` for CPU
   - [x] Add `.device` property: return "cuda" or "cpu" based on array type
   - [x] Implement `.to("cuda")` method: convert to cupy array
@@ -114,11 +114,11 @@
 - [x] Compile kernels on RunPod:
   - [x] `nvcc -ptx backend/ops_elementwise.cu -o backend/ops_elementwise.ptx`
   - [x] Verify compilation succeeds
-- [x] Update `frontend/backend.py` with kernel loading:
+- [x] Update `backend.py` with kernel loading:
   - [x] Load `.ptx` files with `cupy.RawKernel`
   - [x] Create wrapper functions: `cuda_add()`, `cuda_mul()`, `cuda_relu()`
   - [x] Handle grid/block dimensions automatically
-- [x] Update `frontend/functional.py`
+- [x] Update `functional.py`
   - [x] Add device dispatch: if device="cuda", call CUDA kernels
   - [x] If device="cpu", use NumPy operations
   - [x] Handle both forward and backward passes
@@ -130,12 +130,12 @@
   - [x] Test gradient correctness on CUDA
 
 #### Profiling
-- [ ] Create `tests/test_performance.py`
-  - [ ] Profile kernel dispatch overhead with Nsight Systems
-  - [ ] Measure memory transfer times
-  - [ ] Document speed of implemented kernels against CPU
+- [x] Create `tests/test_performance.py`
+  - [x] Profile kernel dispatch overhead with Nsight Systems
+  - [x] Measure memory transfer times
+  - [x] Document speed of implemented kernels against CPU
 
-**Stage 1 Milestone:** ✅ MLP trains on GPU with custom CUDA kernels
+**Stage 1 Milestone:** ✅ Basic CUDA kernel support
 
 ---
 
@@ -158,7 +158,7 @@
   - [ ] Implement `log_softmax` backward kernel
 
 #### Functional API
-- [ ] Update `frontend/functional.py`
+- [ ] Update `functional.py`
   - [ ] Add `sum()` operation with CUDA dispatch
   - [ ] Add `max()` operation with CUDA dispatch
   - [ ] Add `softmax()` using CUDA kernel
@@ -203,7 +203,7 @@ Following exactly https://siboehm.com/articles/22/CUDA-MMM
   - [ ] Test correctness vs NumPy on small matrices
   - [ ] Implement backward pass: `dW = X^T @ dY`, `dX = dY @ W^T`
 
-- [ ] Update `frontend/nn/linear.py`
+- [ ] Update `nn/linear.py`
   - [ ] Use CUDA matmul when on cuda
   - [ ] Verify backward pass correctness
 
@@ -344,16 +344,16 @@ Following exactly https://siboehm.com/articles/22/CUDA-MMM
 ### Stage 4: LayerNorm + GELU + Adam (~500-700 LOC)
 
 #### Neural Network Modules
-- [ ] Create `frontend/nn/layernorm.py`
+- [ ] Create `nn/layernorm.py`
   - [ ] Implement `LayerNorm` module
   - [ ] Add learnable scale and bias parameters
   - [ ] Handle normalized_shape configuration
 
-- [ ] Create `frontend/nn/gelu.py`
+- [ ] Create `nn/gelu.py`
   - [ ] Implement `GELU` activation module
 
   #### Adam Optimizer
-- [ ] Create `frontend/optim/adam.py`
+- [ ] Create `optim/adam.py`
   - [ ] Implement `Adam` optimizer
   - [ ] Add first and second moment estimates
   - [ ] Implement bias correction
@@ -401,13 +401,13 @@ Following exactly https://siboehm.com/articles/22/CUDA-MMM
 #### Stage 5A: Naive Attention
 
 ##### Supporting Operations
-- [ ] Update `frontend/tensor.py`
+- [ ] Update `tensor.py`
   - [ ] Add `.reshape()` method
   - [ ] Add `.transpose()` method (materialize, no views)
   - [ ] Add `.view()` as alias for reshape
 
 ##### Embedding Layer
-- [ ] Create `frontend/nn/embedding.py`
+- [ ] Create `nn/embedding.py`
   - [ ] Implement `Embedding` module
   - [ ] Implement forward: 1D gather/index operation
   - [ ] Implement backward: scatter gradients
@@ -417,7 +417,7 @@ Following exactly https://siboehm.com/articles/22/CUDA-MMM
   - [ ] Implement gradient scatter kernel
 
 ##### Attention Implementation
-- [ ] Create `frontend/nn/attention.py`
+- [ ] Create `nn/attention.py`
   - [ ] Implement `MultiHeadAttention` module
   - [ ] Split into Q, K, V projections
   - [ ] Implement attention computation:
@@ -682,7 +682,7 @@ Following the Flash Attention optimization guide from lubits.ch/flash (a 10-part
 
 ##### Integration with Attention Module
 
-- [ ] Update `frontend/nn/attention.py`
+- [ ] Update `nn/attention.py`
   - [ ] Add `use_flash_attention` flag to `MultiHeadAttention`
   - [ ] Add CUDA kernel selection based on auto-tuned configuration
   - [ ] Dispatch to Flash Attention kernel when enabled
@@ -715,13 +715,13 @@ Following the optimization guide from https://www.evl.uic.edu/sjames/cs525/final
 #### Stage 6A: Naive Implementation & Basic Layers
 
 ##### Supporting Operations
-- [ ] Update `frontend/tensor.py`
+- [ ] Update `tensor.py`
   - [ ] Ensure `.reshape()` method exists (may already be done in Stage 5)
   - [ ] Ensure `.transpose()` method exists (may already be done in Stage 5)
   - [ ] Add `.pad()` method for zero-padding boundaries
 
 ##### Conv2d Layer
-- [ ] Create `frontend/nn/conv2d.py`
+- [ ] Create `nn/conv2d.py`
   - [ ] Implement `Conv2d` module
   - [ ] Add learnable weight kernel: shape (out_channels, in_channels, kernel_h, kernel_w)
   - [ ] Add optional bias parameter: shape (out_channels,)
@@ -730,7 +730,7 @@ Following the optimization guide from https://www.evl.uic.edu/sjames/cs525/final
   - [ ] Implement backward pass: gradients w.r.t. input, weight, and bias
 
 ##### Pooling Layers
-- [ ] Create `frontend/nn/pooling.py`
+- [ ] Create `nn/pooling.py`
   - [ ] Implement `MaxPool2d` module
   - [ ] Support configurable kernel_size and stride
   - [ ] Forward: sliding window maximum
@@ -747,11 +747,11 @@ Following the optimization guide from https://www.evl.uic.edu/sjames/cs525/final
   - [ ] Implement forward kernel
   - [ ] Implement backward kernels (gradient w.r.t. input and weights)
 
-- [ ] Update `frontend/backend.py`
+- [ ] Update `backend.py`
   - [ ] Load and initialize conv2d kernels
   - [ ] Add grid/block dimension calculation for 2D operations
 
-- [ ] Update `frontend/functional.py`
+- [ ] Update `functional.py`
   - [ ] Add `conv2d()` operation with device dispatch
   - [ ] Handle CPU (NumPy) and CUDA paths
 
@@ -805,7 +805,7 @@ Following the optimization guide from https://www.evl.uic.edu/sjames/cs525/final
   - [ ] Allocate intermediate buffer for row-pass results
   - [ ] Apply row kernel first, then column kernel
 
-- [ ] Update `frontend/functional.py`
+- [ ] Update `functional.py`
   - [ ] Add separable convolution path
   - [ ] Allocate and manage intermediate buffer
   - [ ] Call row kernel, then column kernel sequentially
@@ -884,7 +884,7 @@ Following the optimization guide from https://www.evl.uic.edu/sjames/cs525/final
   - [ ] Reduce global memory accesses
   - [ ] Ensure coalesced memory access patterns
 
-- [ ] Update `frontend/nn/pooling.py`
+- [ ] Update `nn/pooling.py`
   - [ ] Dispatch to CUDA kernels when on GPU
   - [ ] Store max indices as tensor for backward pass
 

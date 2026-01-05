@@ -10,8 +10,8 @@ try:
 except ImportError:
     CUDA = False
 
-from frontend.tensor import Tensor, tensor
-from frontend.functional import add, mul, relu, sum
+from tensor import Tensor, tensor
+from functional import add, mul, relu, sum
 
 
 def grad_check(f, x, eps=1e-3, atol=1e-2): 

@@ -11,8 +11,8 @@ except ImportError:
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from frontend.tensor import Tensor
-from frontend.functional import add, mul, matmul, relu
+from tensor import Tensor
+from functional import add, mul, matmul, relu
 
 # pip install cupy-cuda12x 
 

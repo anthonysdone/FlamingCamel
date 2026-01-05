@@ -125,7 +125,7 @@ class CUDABackend:
             return self.kernels[cache_key]
 
         current_file = Path(__file__).resolve()
-        project_root = current_file.parent.parent
+        project_root = current_file.parent
         cuda_path = project_root / cuda_file
 
         if not cuda_path.exists():

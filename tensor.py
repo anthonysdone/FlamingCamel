@@ -5,7 +5,7 @@ try:
 except ImportError: 
     CUDA = False
 
-from frontend.autograd import *
+from autograd import *
 
 class Tensor: 
     def __init__(self, data, requires_grad=False, device="cuda"): 
@@ -81,19 +81,19 @@ class Tensor:
             raise ValueError(f"Unknown device: {device}")
     
     def __add__(self, other): 
-        from .functional import add
+        from functional import add
         if not isinstance(other, Tensor):
             other = Tensor(other, device=self.device())
         return add(self, other)
     
     def __mul__(self, other): 
-        from .functional import mul
+        from functional import mul
         if not isinstance(other, Tensor):
             other = Tensor(other, device=self.device())
         return mul(self, other)
     
     def __matmul__(self, other): 
-        from .functional import matmul
+        from functional import matmul
         return matmul(self, other)
     
     def relu(self): 
