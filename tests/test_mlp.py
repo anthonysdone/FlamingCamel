@@ -1,6 +1,7 @@
 import numpy as np
 import sys
 import os
+
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from frontend.tensor import Tensor, tensor
@@ -8,6 +9,12 @@ from frontend.nn.module import Module
 from frontend.nn.linear import Linear
 from frontend.optim.sgd import SGD
 from frontend.functional import cross_entropy
+
+try:
+    import cupy as cp
+    CUDA = True
+except ImportError:
+    CUDA = False
 
 class MLP(Module): 
     def __init__(self, input_size, hidden_sizes, output_size): 

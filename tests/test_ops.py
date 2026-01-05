@@ -4,29 +4,13 @@ import os
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-try:
-    import cupy as cp
-    CUDA = True
-except ImportError:
-    CUDA = False
-
 from frontend.tensor import Tensor, tensor, zeros, ones, randn
 from frontend.functional import add, mul, matmul, sum, relu, cross_entropy
 
 
 def grad_check(f, x, eps=1e-3, atol=1e-2): 
-    # Work with a CPU copy for numerical gradient computation
-    is_gpu = CUDA and isinstance(x.data, cp.ndarray)
-    
-    if is_gpu:
-        # Create a CPU version of x for numerical gradient
-        x_data_cpu = cp.asnumpy(x.data)
-        x_cpu = tensor(x_data_cpu, requires_grad=True, device="cpu")
-    else:
-        x_cpu = x
-    
-    # Compute numerical gradient on CPU
-    x_np = x_cpu.data.copy()
+    # Compute numerical gradient
+    x_np = x.data.copy()
     grad = np.zeros_like(x_np)
     
     it = np.nditer(x_np, flags=["multi_index"], op_flags=["readwrite"])
@@ -35,28 +19,22 @@ def grad_check(f, x, eps=1e-3, atol=1e-2):
         old_value = x_np[idx]
 
         x_np[idx] = old_value + eps
-        x_cpu.data = x_np.copy()
-        f_plus = f(x_cpu).item()
+        x.data = x_np.copy()
+        f_plus = f(x).item()
 
         x_np[idx] = old_value - eps
-        x_cpu.data = x_np.copy()
-        f_minus = f(x_cpu).item()
+        x.data = x_np.copy()
+        f_minus = f(x).item()
 
         grad[idx] = (f_plus - f_minus) / (2 * eps)
         x_np[idx] = old_value
         it.iternext()
     
-    # Compute autograd gradient on original tensor
-    if is_gpu:
-        x.grad = None
-        output = f(x)
-        output.backward()
-        autograd_grad = cp.asnumpy(x.grad) if isinstance(x.grad, cp.ndarray) else x.grad
-    else:
-        x.grad = None
-        output = f(x)
-        output.backward()
-        autograd_grad = x.grad
+    # Compute autograd gradient
+    x.grad = None
+    output = f(x)
+    output.backward()
+    autograd_grad = x.grad
 
     diff = np.abs(grad - autograd_grad)
     max_diff = np.max(diff)
@@ -83,100 +61,57 @@ def test_tensor_creation():
     t = randn(2, 3)
     assert t.shape == (2, 3), f"Expected shape (2, 3), got {t.shape}"
 
-    t = tensor([1.0, 2.0, 3.0], requires_grad=True)
+    t = tensor([1.0, 2.0, 3.0], requires_grad=True, device="cpu")
     assert t.requires_grad == True, "requires_grad not set correctly"
     assert t.shape == (3,), f"Expected shape (3,), got {t.shape}"
 
     print("Tensor creation tests passed!")
 
-def test_add_op(device): 
-    print(f"\nTesting addition on {device}...")
-    
-    if device == "cuda" and not CUDA:
-        print("CUDA not available, skipping GPU test")
-        return
+def test_add_op(): 
+    print("\nTesting addition...")
 
-    a = tensor([1.0, 2.0, 3.0], requires_grad=True, device=device)
-    b = tensor([4.0, 5.0, 6.0], requires_grad=True, device=device)
+    a = tensor([1.0, 2.0, 3.0], requires_grad=True, device="cpu")
+    b = tensor([4.0, 5.0, 6.0], requires_grad=True, device="cpu")
     c = a + b
 
-    
-    if device == "cuda" and CUDA:
-        expected = cp.array([5.0, 7.0, 9.0])
-        assert cp.allclose(c.data, expected), f"Expected {expected}, got {c.data}"
-    else:
-        expected = np.array([5.0, 7.0, 9.0])
-        assert np.allclose(c.data, expected), f"Expected {expected}, got {c.data}"
+    expected = np.array([5.0, 7.0, 9.0])
+    assert np.allclose(c.data, expected), f"Expected {expected}, got {c.data}"
 
-    # For GPU, convert b to CPU for gradcheck
-    if device == "cuda":
-        b_for_check = tensor([4.0, 5.0, 6.0], requires_grad=True, device="cpu")
-        a_for_check = tensor([1.0, 2.0, 3.0], requires_grad=True, device="cpu")
-        
-        def f1(x): 
-            return sum(x + b_for_check)
-        assert grad_check(f1, a_for_check), "Add gradcheck failed for first argument"
+    def f1(x): 
+        return sum(x + b)
+    assert grad_check(f1, a), "Add gradcheck failed for first argument"
 
-        def f2(x):
-            return sum(a_for_check + x)
-        assert grad_check(f2, b_for_check), "Add gradcheck failed for second argument"
-    else:
-        def f1(x): 
-            return sum(x + b)
-        assert grad_check(f1, a), "Add gradcheck failed for first argument"
-
-        def f2(x):
-            return sum(a + x)
-        assert grad_check(f2, b), "Add gradcheck failed for second argument"
+    def f2(x):
+        return sum(a + x)
+    assert grad_check(f2, b), "Add gradcheck failed for second argument"
 
     print("Addition test passed!")
 
-def test_mul_op(device): 
-    print(f"\nTesting multiplication on {device}...")
+def test_mul_op(): 
+    print("\nTesting multiplication...")
 
-    if device == "cuda" and not CUDA:
-        print("CUDA not available, skipping GPU test")
-        return
-
-    a = tensor([1.0, 2.0, 3.0], requires_grad=True, device=device)
-    b = tensor([4.0, 5.0, 6.0], requires_grad=True, device=device)
+    a = tensor([1.0, 2.0, 3.0], requires_grad=True, device="cpu")
+    b = tensor([4.0, 5.0, 6.0], requires_grad=True, device="cpu")
     c = a * b
 
-    if device == "cuda" and CUDA:
-        expected = cp.array([4.0, 10.0, 18.0])
-        assert cp.allclose(c.data, expected), f"Expected {expected}, got {c.data}"
-    else:
-        expected = np.array([4.0, 10.0, 18.0])
-        assert np.allclose(c.data, expected), f"Expected {expected}, got {c.data}"
+    expected = np.array([4.0, 10.0, 18.0])
+    assert np.allclose(c.data, expected), f"Expected {expected}, got {c.data}"
 
-    # For GPU, convert to CPU for gradcheck
-    if device == "cuda":
-        b_for_check = tensor([4.0, 5.0, 6.0], requires_grad=True, device="cpu")
-        a_for_check = tensor([1.0, 2.0, 3.0], requires_grad=True, device="cpu")
-        
-        def f1(x): 
-            return sum(x * b_for_check)
-        assert grad_check(f1, a_for_check), "Mul gradcheck failed for first argument"
+    def f1(x): 
+        return sum(x * b)
+    assert grad_check(f1, a), "Mul gradcheck failed for first argument"
 
-        def f2(x):
-            return sum(a_for_check * x)
-        assert grad_check(f2, b_for_check), "Mul gradcheck failed for second argument"
-    else:
-        def f1(x): 
-            return sum(x * b)
-        assert grad_check(f1, a), "Mul gradcheck failed for first argument"
+    def f2(x):
+        return sum(a * x)
+    assert grad_check(f2, b), "Mul gradcheck failed for second argument"
 
-        def f2(x):
-            return sum(a * x)
-        assert grad_check(f2, b), "Mul gradcheck failed for second argument"
-
-    print("Mutliplication test passed!")
+    print("Multiplication test passed!")
 
 def test_matmul_op():
     print("\nTesting matrix multiplication...")
 
-    a = tensor([[1.0, 2.0], [3.0, 4.0]], requires_grad=True)
-    b = tensor([[5.0, 6.0], [7.0, 8.0]], requires_grad=True)
+    a = tensor([[1.0, 2.0], [3.0, 4.0]], requires_grad=True, device="cpu")
+    b = tensor([[5.0, 6.0], [7.0, 8.0]], requires_grad=True, device="cpu")
     c = a @ b
 
     expected = np.array([[19.0, 22.0], [43.0, 50.0]])
@@ -192,24 +127,15 @@ def test_matmul_op():
 
     print("Matrix multiplication test passed!")
 
-def test_relu_op(device): 
-    print(f"\nTesting ReLU on {device}...")
+def test_relu_op(): 
+    print("\nTesting ReLU...")
 
-    if device == "cuda" and not CUDA:
-        print("CUDA not available, skipping GPU test")
-        return
-
-    x = tensor([-2.0, -1.0, 0.0, 1.0, 2.0], requires_grad=True, device=device)
+    x = tensor([-2.0, -1.0, 0.0, 1.0, 2.0], requires_grad=True, device="cpu")
     y = relu(x)
 
-    if device == "cuda" and CUDA:
-        expected = cp.array([0.0, 0.0, 0.0, 1.0, 2.0])
-        assert cp.allclose(y.data, expected), f"Expected {expected}, got {y.data}"
-    else:
-        expected = np.array([0.0, 0.0, 0.0, 1.0, 2.0])
-        assert np.allclose(y.data, expected), f"Expected {expected}, got {y.data}"
+    expected = np.array([0.0, 0.0, 0.0, 1.0, 2.0])
+    assert np.allclose(y.data, expected), f"Expected {expected}, got {y.data}"
 
-    # Always use CPU for gradcheck
     x_test = tensor([-2.0, -1.0, 1.0, 2.0], requires_grad=True, device="cpu")
     def f(x): 
         return sum(relu(x))
@@ -220,7 +146,7 @@ def test_relu_op(device):
 def test_sum_op(): 
     print("\nTesting sum...")
 
-    x = tensor([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]], requires_grad=True)
+    x = tensor([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]], requires_grad=True, device="cpu")
     y = sum(x)
 
     expected = 21.0
@@ -235,8 +161,8 @@ def test_sum_op():
 def test_cross_entropy_op():
     print("\nTesting cross entropy...")
 
-    logits = tensor([[2.0, 1.0, 0.1], [1.0, 3.0, 0.2]], requires_grad=True)
-    targets = tensor([0, 1])
+    logits = tensor([[2.0, 1.0, 0.1], [1.0, 3.0, 0.2]], requires_grad=True, device="cpu")
+    targets = tensor([0, 1], device="cpu")
     loss = cross_entropy(logits, targets)
 
     assert loss.shape == (), f"Expected scalar loss, got shape {loss.shape}"
@@ -251,9 +177,9 @@ def test_cross_entropy_op():
 def test_compound_ops():
     print("\nTesting compound operations...")
 
-    x = tensor([[1.0, 2.0]], requires_grad=True)
-    W = tensor([[0.5, 0.3], [0.2, 0.4]], requires_grad=True)
-    b = tensor([0.1, 0.2], requires_grad=True)
+    x = tensor([[1.0, 2.0]], requires_grad=True, device="cpu")
+    W = tensor([[0.5, 0.3], [0.2, 0.4]], requires_grad=True, device="cpu")
+    b = tensor([0.1, 0.2], requires_grad=True, device="cpu")
     g = relu(x @ W + b)
 
     expected = np.maximum(0, x.data @ W.data + b.data)
@@ -277,7 +203,7 @@ def test_compound_ops():
 def test_backward_accumulation():
     print("\nTesting backward accumulation...")
 
-    x = tensor([1.0, 2.0, 3.0], requires_grad=True)
+    x = tensor([1.0, 2.0, 3.0], requires_grad=True, device="cpu")
 
     y1 = sum(x * 2.0)
     y1.backward()
@@ -295,19 +221,16 @@ def test_backward_accumulation():
 
 
 if __name__ ==  "__main__": 
-    print("\nRunning operation tests...")
+    print("\nRunning CPU operation tests...")
     print("=" * 30)
     test_tensor_creation()
-    test_add_op(device="cpu")
-    test_add_op(device="cuda")
-    test_mul_op(device="cpu")
-    test_mul_op(device="cuda")
+    test_add_op()
+    test_mul_op()
     test_matmul_op()
-    test_relu_op(device="cpu")
-    test_relu_op(device="cuda")
+    test_relu_op()
     test_sum_op()
     test_cross_entropy_op()
     test_compound_ops()
     test_backward_accumulation()
     print("\n" + "=" * 30)
-    print("All tests passed!")
+    print("All CPU operation tests passed!")
