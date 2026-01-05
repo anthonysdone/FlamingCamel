@@ -129,14 +129,11 @@
   - [x] Test different tensor shapes
   - [x] Test gradient correctness on CUDA
 
-- [x] Update `examples/mlp.py`
-  - [x] Add `.to("cuda")` to model and data
-  - [x] Verify training works on GPU
-
 #### Profiling
-- [ ] Profile kernel dispatch overhead with Nsight Systems
-- [ ] Measure memory transfer times
-- [ ] Document performance baseline
+- [ ] Create `tests/test_performance.py`
+  - [ ] Profile kernel dispatch overhead with Nsight Systems
+  - [ ] Measure memory transfer times
+  - [ ] Document speed of implemented kernels against CPU
 
 **Stage 1 Milestone:** ✅ MLP trains on GPU with custom CUDA kernels
 
@@ -169,10 +166,15 @@
   - [ ] Add stable `cross_entropy()` using log_softmax
 
 #### Testing
-- [ ] Test reduction correctness (CPU vs CUDA)
-- [ ] Test softmax numerical stability
+- [ ] Update `tests/test_ops.py`
+  - [ ] Test reduction correctness (CPU vs CUDA)
+  - [ ] Test softmax numerical stability
   - [ ] Test cross_entropy gradients
-- [ ] Gradcheck all new operations
+  - [ ] Gradcheck all new operations
+
+- [x] Update `tests/test_mlp.py`
+  - [x] Add `.to("cuda")` to model and data
+  - [x] Verify training works on GPU
 
 #### Example
 - [ ] Create `examples/classifier.py`
