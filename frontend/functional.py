@@ -1,4 +1,9 @@
 import numpy as np
+try:
+    import cupy as cp
+    CUDA = True
+except ImportError:
+    CUDA = False
 from .autograd import Function
 from .tensor import Tensor
 
@@ -6,11 +11,22 @@ class Add(Function):
     @staticmethod
     def forward(ctx, a, b): 
         ctx.save_for_backward(a, b)
-        return Tensor(a.data + b.data, a.requires_grad or b.requires_grad)
+
+        if CUDA and isinstance(a.data, cp.ndarray):
+            from frontend.backend import cuda_add
+            out_data = cuda_add(a.data, b.data)
+            device = "cuda"
+        else:
+            out_data = a.data + b.data
+            device = "cpu"
+
+        return Tensor(out_data, a.requires_grad or b.requires_grad, device)
     
     @staticmethod
     def backward(ctx, grad_output):
+        # add broadcasting to cuda
         a, b = ctx.saved_tensors
+
         grad_a = grad_output
         grad_b = grad_output
         
@@ -34,13 +50,28 @@ class Mul(Function):
     @staticmethod
     def forward(ctx, a, b):
         ctx.save_for_backward(a, b)
-        return Tensor(a.data * b.data, a.requires_grad or b.requires_grad)
+
+        if CUDA and isinstance(a.data, cp.ndarray):
+            from frontend.backend import cuda_mul
+            out_data = cuda_mul(a.data, b.data)
+            device = "cuda"
+        else:
+            out_data = a.data * b.data
+            device = "cpu"
+
+        return Tensor(out_data, a.requires_grad or b.requires_grad, device)
     
     @staticmethod
     def backward(ctx, grad_output): 
         a, b = ctx.saved_tensors
-        grad_a = grad_output * b.data
-        grad_b = grad_output * a.data
+
+        if CUDA and isinstance(a.data, cp.ndarray):
+            from frontend.backend import cuda_mul_backward
+            grad_a, grad_b = cuda_mul_backward(grad_output, a.data, b.data)
+        else:
+            grad_a = grad_output * b.data
+            grad_b = grad_output * a.data
+
         return grad_a, grad_b
 
 class MatMul(Function): 
@@ -74,18 +105,38 @@ class Sum(Function):
     
     @staticmethod
     def backward(ctx, grad_output): 
-        return np.ones(ctx.saved_data["input_shape"]) * grad_output
+        input_shape = ctx.saved_data["input_shape"]
+        if CUDA and isinstance(grad_output, cp.ndarray):
+            return cp.ones(input_shape) * grad_output
+        else:
+            return np.ones(input_shape) * grad_output
     
 class ReLU(Function): 
     @staticmethod
     def forward(ctx, x): 
         ctx.save_for_backward(x)
-        return Tensor(np.maximum(0, x.data), x.requires_grad)
+
+        if CUDA and isinstance(x.data, cp.ndarray):
+            from frontend.backend import cuda_relu
+            out_data = cuda_relu(x.data)
+            device = "cuda"
+        else:
+            out_data = np.maximum(0, x.data)
+            device = "cpu"
+
+        return Tensor(out_data, x.requires_grad, device)
     
     @staticmethod
     def backward(ctx, grad_output):
         x, = ctx.saved_tensors
-        return grad_output * (x.data > 0)
+
+        if CUDA and isinstance(grad_output, cp.ndarray):
+            from frontend.backend import cuda_relu_backward
+            grad_x = cuda_relu_backward(grad_output, x.data)
+        else:
+            grad_x = grad_output * (x.data > 0)
+        
+        return grad_x
     
 class CrossEntropy(Function): 
     @staticmethod
@@ -114,6 +165,11 @@ class CrossEntropy(Function):
         grad_logits = softmax.copy()
         grad_logits[np.arange(batch_size), targets.data.astype(int)] -= 1
         grad_logits /= batch_size
+        
+        # Ensure grad_output is numpy
+        if CUDA and isinstance(grad_output, cp.ndarray):
+            grad_output = cp.asnumpy(grad_output)
+        
         grad_logits *= grad_output
 
         return grad_logits, None

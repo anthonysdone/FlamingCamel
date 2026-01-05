@@ -45,10 +45,25 @@ def backward_pass(tensor):
     
     build_topo(tensor)
 
+    # Initialize gradient
+    try:
+        import cupy as cp
+        CUDA = True
+    except ImportError:
+        CUDA = False
+    
     if tensor.data.shape == ():
-        tensor.grad = np.array(1.0)
+        if CUDA and isinstance(tensor.data, cp.ndarray):
+            # CuPy array
+            tensor.grad = cp.array(1.0)
+        else:
+            tensor.grad = np.array(1.0)
     else:
-        tensor.grad = np.ones(tensor.data.shape)
+        if CUDA and isinstance(tensor.data, cp.ndarray):
+            # CuPy array
+            tensor.grad = cp.ones(tensor.data.shape)
+        else:
+            tensor.grad = np.ones(tensor.data.shape)
 
     for t in reversed(topo): 
         if t.backward_fn is None:
@@ -60,7 +75,18 @@ def backward_pass(tensor):
         
         for prev_tensor, grad in zip(t.prev_tensors, grads): 
             if grad is not None: 
+                # Ensure gradient is on same device as tensor
+                if CUDA and isinstance(prev_tensor.data, cp.ndarray) and isinstance(grad, cp.ndarray):
+                    # Both on GPU
+                    pass
+                elif CUDA and isinstance(prev_tensor.data, cp.ndarray) and isinstance(grad, np.ndarray):
+                    # Tensor on GPU, grad on CPU - convert grad to GPU
+                    grad = cp.array(grad)
+                elif CUDA and isinstance(grad, cp.ndarray) and isinstance(prev_tensor.data, np.ndarray):
+                    # Tensor on CPU, grad on GPU - convert grad to CPU
+                    grad = cp.asnumpy(grad)
+                
                 if prev_tensor.grad is None: 
                     prev_tensor.grad = grad
                 else: 
-                    prev_tensor.grad += grad
+                    prev_tensor.grad = prev_tensor.grad + grad

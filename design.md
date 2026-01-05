@@ -436,7 +436,7 @@ Implement **only what each stage needs**:
 
 **Tensor ops:** `reshape`, `transpose`, `pad` (materialize only).
 
-**Never implement:** `sub`, `div`, `exp`, `log`, `conv2d`, `concat`—skip or decompose via autograd.
+**Never implement:** `sub`, `div`, `exp`, `log`, `concat`—skip or decompose via autograd.
 
 ---
 

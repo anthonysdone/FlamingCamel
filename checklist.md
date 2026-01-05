@@ -90,25 +90,26 @@
 - [x] Test kernel compilation directly on pod
 
 #### Backend Infrastructure (Direct CUDA)
-- [ ] Create `frontend/backend.py`
-  - [ ] Initialize cupy and detect GPU
-  - [ ] Load compiled `.ptx` kernels using `cupy.RawKernel`
-  - [ ] Create kernel wrapper functions
-  - [ ] Add error checking for CUDA errors
-  - [ ] Cache loaded kernels to avoid reloading
+- [x] Create `frontend/backend.py`
+  - [x] Initialize cupy and detect GPU
+  - [x] Load compiled `.ptx` kernels using `cupy.RawKernel`
+  - [x] Create kernel wrapper functions
+  - [x] Add error checking for CUDA errors
+  - [x] Cache loaded kernels to avoid reloading
 
 #### Tensor Device Support
-- [ ] Update `frontend/tensor.py`
-  - [ ] Store data as `self._data`: `cupy.ndarray` for GPU or `numpy.ndarray` for CPU
-  - [ ] Add `.device` property: return "cuda" or "cpu" based on array type
-  - [ ] Implement `.to("cuda")` method: convert to cupy array
-  - [ ] Implement `.to("cpu")` method: convert to numpy array
-  - [ ] Ensure `.grad` tensors stay on same device as parent tensor
+- [x] Update `frontend/tensor.py`
+  - [x] Store data as `self._data`: `cupy.ndarray` for GPU or `numpy.ndarray` for CPU
+  - [x] Add `.device` property: return "cuda" or "cpu" based on array type
+  - [x] Implement `.to("cuda")` method: convert to cupy array
+  - [x] Implement `.to("cpu")` method: convert to numpy array
+  - [x] Ensure `.grad` tensors stay on same device as parent tensor
 
 #### Elementwise Kernels
 - [ ] Create `backend/ops_elementwise.cu`
   - [ ] Implement `add_kernel`: `__global__ void add_kernel(float* a, float* b, float* c, int n)`
-  - [ ] Implement `mul_kernel`, `relu_kernel`, `relu_backward_kernel`
+  - [ ] Implement `mul_kernel`, `relu_kernel`
+  - [ ] Implement `add_backward_kernel`, `mul_backward_kernel`, `relu_backward_kernel`
   - [ ] Each kernel: 1 thread per element, grid-stride loop
 - [ ] Compile kernels on RunPod:
   - [ ] `nvcc -ptx backend/ops_elementwise.cu -o backend/ops_elementwise.ptx`
@@ -117,7 +118,6 @@
   - [ ] Load `.ptx` files with `cupy.RawKernel`
   - [ ] Create wrapper functions: `cuda_add()`, `cuda_mul()`, `cuda_relu()`
   - [ ] Handle grid/block dimensions automatically
-
 - [ ] Update `frontend/functional.py`
   - [ ] Add device dispatch: if device="cuda", call CUDA kernels
   - [ ] If device="cpu", use NumPy operations
